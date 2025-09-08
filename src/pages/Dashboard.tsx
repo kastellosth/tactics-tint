@@ -3,30 +3,19 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Play, 
-  TrendingUp, 
-  Target, 
-  Shield, 
-  Wind,
-  Calendar,
-  MoreHorizontal
-} from "lucide-react";
+import { Play, TrendingUp, Target, Shield, Wind, Calendar, MoreHorizontal } from "lucide-react";
 import { mockRuns, mockKPIs } from "@/lib/mockData";
 import { useNavigate } from "react-router-dom";
-
 export default function Dashboard() {
   const navigate = useNavigate();
-
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'EUR',
       minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
+      maximumFractionDigits: 0
     }).format(value);
   };
-
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'completed':
@@ -39,9 +28,7 @@ export default function Dashboard() {
         return <Badge variant="secondary">{status}</Badge>;
     }
   };
-
-  return (
-    <div className="flex-1 space-y-6 p-6">
+  return <div className="flex-1 space-y-6 p-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -50,10 +37,7 @@ export default function Dashboard() {
             Optimize your football lineups and analyze tactical performance
           </p>
         </div>
-        <Button 
-          className="gradient-primary hover:opacity-90 transition-opacity"
-          onClick={() => navigate('/optimize')}
-        >
+        <Button className="gradient-primary hover:opacity-90 transition-opacity" onClick={() => navigate('/optimize')}>
           <Play className="mr-2 h-4 w-4" />
           New Optimization
         </Button>
@@ -61,34 +45,22 @@ export default function Dashboard() {
 
       {/* KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          title="Average Cost"
-          value={formatCurrency(mockKPIs.averageCost)}
-          subtitle="Last 30 days"
-          icon={TrendingUp}
-          trend={{ value: 5.2, label: "vs last month" }}
-        />
-        <StatCard
-          title="Total Runs"
-          value={mockKPIs.totalRuns}
-          subtitle="This month"
-          icon={Target}
-          trend={{ value: 12, label: "vs last month" }}
-        />
-        <StatCard
-          title="Success Rate"
-          value={`${mockKPIs.successRate}%`}
-          subtitle="Optimization success"
-          icon={Shield}
-          trend={{ value: 3.1, label: "improvement" }}
-        />
-        <StatCard
-          title="Avg Wing Focus"
-          value={`${(mockKPIs.avgWingWeight * 100).toFixed(0)}%`}
-          subtitle="Tactical weight"
-          icon={Wind}
-          trend={{ value: -2.4, label: "vs avg" }}
-        />
+        <StatCard title="Average Cost" value={formatCurrency(mockKPIs.averageCost)} subtitle="Last 30 days" icon={TrendingUp} trend={{
+        value: 5.2,
+        label: "vs last month"
+      }} />
+        <StatCard title="Total Runs" value={mockKPIs.totalRuns} subtitle="This month" icon={Target} trend={{
+        value: 12,
+        label: "vs last month"
+      }} />
+        <StatCard title="Success Rate" value={`${mockKPIs.successRate}%`} subtitle="Optimization success" icon={Shield} trend={{
+        value: 3.1,
+        label: "improvement"
+      }} />
+        <StatCard title="Avg Wing Focus" value={`${(mockKPIs.avgWingWeight * 100).toFixed(0)}%`} subtitle="Tactical weight" icon={Wind} trend={{
+        value: -2.4,
+        label: "vs avg"
+      }} />
       </div>
 
       {/* Tactical Weights Overview */}
@@ -141,15 +113,14 @@ export default function Dashboard() {
                   <th className="text-left py-3 px-4 font-medium text-muted-foreground">Date</th>
                   <th className="text-left py-3 px-4 font-medium text-muted-foreground">Teams</th>
                   <th className="text-left py-3 px-4 font-medium text-muted-foreground">Formation</th>
-                  <th className="text-left py-3 px-4 font-medium text-muted-foreground">Total Cost</th>
+                  
                   <th className="text-left py-3 px-4 font-medium text-muted-foreground">Status</th>
                   <th className="text-left py-3 px-4 font-medium text-muted-foreground">Plan Summary</th>
                   <th className="text-right py-3 px-4 font-medium text-muted-foreground">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {mockRuns.map((run) => (
-                  <tr key={run.id} className="border-b border-border/50 hover:bg-muted/5">
+                {mockRuns.map(run => <tr key={run.id} className="border-b border-border/50 hover:bg-muted/5">
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2 text-sm">
                         <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -165,11 +136,7 @@ export default function Dashboard() {
                     <td className="py-3 px-4">
                       <Badge variant="outline">{run.formation}</Badge>
                     </td>
-                    <td className="py-3 px-4">
-                      <div className="font-medium text-foreground">
-                        {formatCurrency(run.totalCost)}
-                      </div>
-                    </td>
+                    
                     <td className="py-3 px-4">
                       {getStatusBadge(run.status)}
                     </td>
@@ -179,21 +146,15 @@ export default function Dashboard() {
                       </div>
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => navigate(`/runs/${run.id}`)}
-                      >
+                      <Button variant="ghost" size="sm" onClick={() => navigate(`/runs/${run.id}`)}>
                         <MoreHorizontal className="h-4 w-4" />
                       </Button>
                     </td>
-                  </tr>
-                ))}
+                  </tr>)}
               </tbody>
             </table>
           </div>
         </CardContent>
       </Card>
-    </div>
-  );
+    </div>;
 }
