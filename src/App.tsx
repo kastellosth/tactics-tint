@@ -8,6 +8,7 @@ import { AppSidebar } from "@/components/AppSidebar";
 import Dashboard from "./pages/Dashboard";
 import Teams from "./pages/Teams";
 import Opponents from "./pages/Opponents";
+import Runs from "./pages/Runs";
 import RunDetail from "./pages/RunDetail";
 import NotFound from "./pages/NotFound";
 
@@ -32,9 +33,10 @@ const App = () => (
               <main className="flex-1 overflow-auto">
                 <Routes>
                   <Route path="/" element={<Dashboard />} />
-                  <Route path="/teams" element={<Teams />} />
-                  <Route path="/opponents" element={<Opponents />} />
-                  <Route path="/runs/:id" element={<RunDetail />} />
+            <Route path="/teams" element={<Teams />} />
+            <Route path="/opponents" element={<Opponents />} />
+            <Route path="/runs" element={<Runs />} />
+            <Route path="/runs/:id" element={<RunDetail />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </main>

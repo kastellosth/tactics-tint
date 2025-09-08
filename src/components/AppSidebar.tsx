@@ -6,7 +6,7 @@ const navigation = [{
   url: "/",
   icon: BarChart3
 }, {
-  title: "Teams",
+  title: "My Team",
   url: "/teams",
   icon: Users
 }, {
@@ -14,7 +14,7 @@ const navigation = [{
   url: "/opponents",
   icon: Shield
 }, {
-  title: "Runs",
+  title: "Optimization Runs",
   url: "/runs",
   icon: Activity
 }];
@@ -58,7 +58,12 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {navigation.map(item => <SidebarMenuItem key={item.title}>
-                  
+                  <SidebarMenuButton asChild className={getNavCls({ isActive: isActive(item.url) })}>
+                    <NavLink to={item.url}>
+                      <item.icon className="mr-2 h-4 w-4" />
+                      {item.title}
+                    </NavLink>
+                  </SidebarMenuButton>
                 </SidebarMenuItem>)}
             </SidebarMenu>
           </SidebarGroupContent>
@@ -69,8 +74,11 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {settings.map(item => <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    
+                  <SidebarMenuButton asChild className={getNavCls({ isActive: isActive(item.url) })}>
+                    <NavLink to={item.url}>
+                      <item.icon className="mr-2 h-4 w-4" />
+                      {item.title}
+                    </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>)}
             </SidebarMenu>
