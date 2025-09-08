@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from "react-router-dom";
-import { BarChart3, Users, Shield, Activity, Settings, Zap } from "lucide-react";
+import { BarChart3, Users, Shield, Activity, Zap } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
 const navigation = [{
   title: "Dashboard",
@@ -17,11 +17,6 @@ const navigation = [{
   title: "Optimization Runs",
   url: "/runs",
   icon: Activity
-}];
-const settings = [{
-  title: "Settings",
-  url: "/settings",
-  icon: Settings
 }];
 export function AppSidebar() {
   const {
@@ -69,21 +64,6 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
-          <SidebarGroupLabel>System</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {settings.map(item => <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild className={getNavCls({ isActive: isActive(item.url) })}>
-                    <NavLink to={item.url}>
-                      <item.icon className="mr-2 h-4 w-4" />
-                      {item.title}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>)}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
       </SidebarContent>
     </Sidebar>;
 }
