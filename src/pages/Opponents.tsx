@@ -63,40 +63,38 @@ export default function Opponents() {
         </div>
       </div>
 
-      {/* Formation Preview - Full Width */}
-      <Card className="card-gradient border-border/50">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-foreground">Opponent Formation</CardTitle>
-              <CardDescription>Current opponent team layout and formation</CardDescription>
-            </div>
-            <Select value={selectedFormation} onValueChange={setSelectedFormation}>
-              <SelectTrigger className="w-32">
-                <SelectValue placeholder="Formation" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="4-3-3">4-3-3</SelectItem>
-                <SelectItem value="4-2-3-1">4-2-3-1</SelectItem>
-                <SelectItem value="3-5-2">3-5-2</SelectItem>
-                <SelectItem value="4-4-2">4-4-2</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="flex justify-center">
-            <FootballPitch 
-              opponentLineup={filteredOpponents}
-              className="h-fit max-w-2xl"
-              title="Opponent Team"
-            />
-          </div>
-        </CardContent>
-      </Card>
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        {/* Formation Preview */}
+        <div className="xl:col-span-1">
+          <Card className="card-gradient border-border/50 sticky top-6">
+            <CardHeader>
+              <CardTitle className="text-foreground">Formation Preview</CardTitle>
+              <CardDescription>Visual representation of opponent formation</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <Select value={selectedFormation} onValueChange={setSelectedFormation}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select formation" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="4-3-3">4-3-3</SelectItem>
+                    <SelectItem value="4-2-3-1">4-2-3-1</SelectItem>
+                    <SelectItem value="3-5-2">3-5-2</SelectItem>
+                    <SelectItem value="4-4-2">4-4-2</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FootballPitch 
+                  opponentLineup={filteredOpponents}
+                  className="h-fit"
+                />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
-      {/* Opponents Management */}
-      <div className="space-y-6">
+        {/* Opponents Table */}
+        <div className="xl:col-span-2 space-y-6">
           {/* Controls */}
           <Card className="card-gradient border-border/50">
             <CardHeader>
