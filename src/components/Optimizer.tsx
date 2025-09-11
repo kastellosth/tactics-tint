@@ -9,6 +9,8 @@ import { hungarianAlgorithm } from '@/lib/hungarianAlgorithm';
 import { calculatePlayerPositionCost } from '@/lib/costFunction';
 import { formationPositions, getRoleFromSlot, positionMap } from '@/lib/formationPositions';
 import { parseOpponentCSV, analyzeOpponentTeam, analyzeMatchups } from '@/lib/opponentAnalysis';
+import { parseMyTeamCSV } from '@/lib/parseMyTeam';
+import { inferOpponentFormation } from '@/lib/inferOpponentFormation';
 
 // Types
 interface Player {
@@ -116,82 +118,104 @@ const Optimizer: React.FC<OptimizerProps> = ({ onOptimization }) => {
   const [topLineups, setTopLineups] = useState<LineupResult[]>([]);
   const [isOptimizing, setIsOptimizing] = useState(false);
 
-  // Enhanced CSV parser for my team
-  const parseCSV = (text: string): Player[] => {
-    const lines = text.trim().split('\n');
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-    
-    return lines.slice(1).map(line => {
-      const values = line.split(',').map(v => v.trim());
-      const obj: Record<string, string> = {};
-      headers.forEach((k, i) => obj[k] = values[i] || '');
-      
-      const safeNum = (val: string, defaultVal = 0): number => {
-        const num = Number(val);
-        return isNaN(num) ? defaultVal : Math.max(0, Math.min(100, num));
-      };
-      
-      return {
-        id: obj.id || obj.number || `player_${Math.random()}`,
-        firstName: obj.firstname || obj.first_name || '',
-        lastName: obj.lastname || obj.last_name || '',
-        name: obj.name || '',
-        preferredFoot: obj.preferredfoot || obj.preferred_foot || obj.foot,
-        height: safeNum(obj.height, 180),
-        position: (obj.position || '').toUpperCase(),
-        number: safeNum(obj.number),
-        quality: safeNum(obj.quality),
-        speed: safeNum(obj.speed),
-        stamina: safeNum(obj.stamina),
-        strength: safeNum(obj.strength),
-        balance: safeNum(obj.balance),
-        agility: safeNum(obj.agility),
-        jumping: safeNum(obj.jumping),
-        heading: safeNum(obj.heading),
-        aerial: safeNum(obj.aerial),
-        passing: safeNum(obj.passing),
-        vision: safeNum(obj.vision),
-        firstTouch: safeNum(obj.firsttouch || obj.first_touch),
-        finishing: safeNum(obj.finishing),
-        tackling: safeNum(obj.tackling),
-        positioning: safeNum(obj.positioning),
-        pressResistance: safeNum(obj.pressresistance || obj.press_resistance),
-        offBall: safeNum(obj.offball || obj.off_ball),
-      };
-    });
+  // Helper functions for robust name display
+  const coalesceNameParts = (vals: any[]): string[] =>
+    vals.filter(Boolean).map(String).map(s => s.trim()).filter(Boolean);
+
+  const coalesceName = (record: any): string => {
+    const parts = coalesceNameParts([
+      record?.name,
+      record?.player,
+      record?.displayName,
+      [record?.firstName, record?.lastName].filter(Boolean).join(" "),
+      [record?.first_name, record?.last_name].filter(Boolean).join(" ")
+    ]);
+    return parts[0] || "";
   };
 
-  // File uploads
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>, isMyTeam: boolean) => {
+  const displayFullName = (p: Player): string => {
+    const first = (p?.firstName || "").trim();
+    const last = (p?.lastName || "").trim();
+    const both = [first, last].filter(Boolean).join(" ");
+    return both || (p?.name || "").trim() || "Unknown Player";
+  };
+
+  // Guardrail functions
+  const assertFinite2D = (matrix: number[][], name = "matrix"): void => {
+    if (!Array.isArray(matrix) || !Array.isArray(matrix[0])) {
+      throw new Error(`${name} is not a 2D array`);
+    }
+    for (let r = 0; r < matrix.length; r++) {
+      const row = matrix[r];
+      for (let c = 0; c < row.length; c++) {
+        const v = row[c];
+        if (!Number.isFinite(v)) {
+          throw new Error(`${name}[${r}][${c}] is not finite: ${v}`);
+        }
+      }
+    }
+  };
+
+  const hasNegative = (matrix: number[][]): boolean => {
+    for (const row of matrix) {
+      for (const v of row) {
+        if (v < 0) return true;
+      }
+    }
+    return false;
+  };
+
+  // File uploads with enhanced parsing
+  const onMyCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const text = await file.text();
-    if (isMyTeam) {
-      setMyTeam(parseCSV(text));
-    } else {
+    const reader = new FileReader();
+    reader.onload = () => setMyTeam(parseMyTeamCSV(String(reader.result || '')));
+    reader.readAsText(file);
+  };
+
+  const onOppCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result || '');
       setOpponentTeam(parseOpponentCSV(text));
-    }
+    };
+    reader.readAsText(file);
   };
 
-  // Matrix utilities
-  const padCostMatrixToSquare = (matrix: number[][], bigM = 1e6) => {
-    const rows = matrix.length;
-    const cols = matrix[0]?.length || 0;
+  const padCostMatrixToSquare = ({ matrix, rows, cols, bigM }: { matrix: number[][], rows: number, cols: number, bigM: number }) => {
     const n = Math.max(rows, cols);
-    const paddedMatrix = matrix.map(row => row.concat(Array(n - cols).fill(bigM)));
-    for (let r = rows; r < n; r++) {
-      paddedMatrix.push(Array(n).fill(bigM));
-    }
-    return { matrix: paddedMatrix, rows, cols, bigM };
+    const padded = Array.from({ length: n }, (_, r) =>
+      Array.from({ length: n }, (_, c) =>
+        (r < rows && c < cols) ? matrix[r][c] : bigM
+      )
+    );
+    return { matrix: padded, rows, cols, bigM };
   };
 
-  const buildCostMatrix = (players: Player[], requiredPositions: string[], oppList: Player[], myFormation: string, oppFormation: string) => {
-    return players.map(myPlayer =>
-      requiredPositions.map((posCode) => {
-        const oppPlayer = oppList.find(p => String(p.slot) === String(posCode)) || null;
-        return calculatePlayerPositionCost(myPlayer, posCode, oppPlayer, myFormation, oppFormation);
-      })
-    );
+  // Build costs with opponent insights (biases)
+  const buildCostMatrix = (my: Player[], required: string[], oppFormation: string, myFormation: string, oppInsights: any) => {
+    const rows = my.length;
+    const cols = required.length;
+    const bigM = 9999;
+    const oppBySlot = new Map((opponentTeam || []).map(p => [String(p.slot || p.position), p]));
+    const matrix = Array.from({ length: rows }, () => Array(cols).fill(bigM));
+    
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        matrix[r][c] = calculatePlayerPositionCost(
+          my[r],
+          required[c],
+          oppBySlot.get(String(required[c])) || null,
+          myFormation,
+          oppFormation,
+          oppInsights
+        );
+      }
+    }
+    return { matrix, rows, cols, bigM };
   };
 
   // UI grouping by roles for pitch visualization
@@ -221,28 +245,17 @@ const Optimizer: React.FC<OptimizerProps> = ({ onOptimization }) => {
     return squad;
   };
 
-  const detectOpponentFormation = (opp: Player[]): string => {
-    const counts = { df: 0, mid: 0, att: 0 };
-    opp.forEach(p => {
-      const role = getRoleFromSlot(p.slot || '');
-      if (role === 'defender') counts.df++;
-      if (role === 'midfielder') counts.mid++;
-      if (role === 'attacker') counts.att++;
-    });
-    return `${counts.df}-${counts.mid}-${Math.max(1, counts.att)}`;
-  };
 
   // Main optimization logic
-  const runOptimization = async () => {
+  const onOptimize = () => {
+    if (!myTeam.length || !opponentTeam.length) {
+      alert("Please upload both CSVs");
+      return;
+    }
+
     setIsOptimizing(true);
     setResult(null);
     setTopLineups([]);
-    
-    if (myTeam.length < 11 || opponentTeam.length < 11) {
-      alert("Both teams must have at least 11 players. Opponent must include a 'slot' column.");
-      setIsOptimizing(false);
-      return;
-    }
 
     // Check for goalkeeper
     const hasGK = myTeam.some(p => p.position === 'GK');
@@ -253,50 +266,95 @@ const Optimizer: React.FC<OptimizerProps> = ({ onOptimization }) => {
     }
 
     setTimeout(() => {
-      const formationsToTry = Object.keys(formationPositions);
-      const results: LineupResult[] = [];
+      const oppFormation = inferOpponentFormation(opponentTeam);
+      const formations = Object.keys(formationPositions);
 
-      formationsToTry.forEach((formation) => {
+      // Opponent insights bias
+      const opp = analyzeOpponentTeam(opponentTeam);
+      const oppInsights = opp?.insights || {};
+
+      let lowest = Infinity;
+      let best: LineupResult | null = null;
+      const topLineups: LineupResult[] = [];
+
+      formations.forEach((formation) => {
         const required = formationPositions[formation];
-        const oppFormation = detectOpponentFormation(opponentTeam);
-        const rectCost = buildCostMatrix(myTeam, required, opponentTeam, formation, oppFormation);
+        const rectCost = buildCostMatrix(myTeam, required, oppFormation, formation, oppInsights);
+
+        // Guardrail: rectangular matrix must be finite; warn if no negatives
+        assertFinite2D(rectCost.matrix, "rectCost");
+        if (!hasNegative(rectCost.matrix)) {
+          console.warn("[warn] rectCost has no negative entries — did something clamp costs to >= 0?");
+        }
+
         const { matrix, rows, cols, bigM } = padCostMatrixToSquare(rectCost);
+
+        // Guardrail: padded square matrix must be finite
+        assertFinite2D(matrix, "paddedCost");
+
+        // Solve
         const assignment = hungarianAlgorithm(matrix);
+        
+        // Normalize Hungarian output to array of {rowIdx, colIdx}
+        const normalizeAssignment = (assign: any, rows: number, cols: number) => {
+          if (!assign) return [];
+          // Most libs: array of column index per row index
+          if (Array.isArray(assign) && assign.length === rows && typeof assign[0] === 'number') {
+            return assign.map((colIdx: number, rowIdx: number) => ({ rowIdx, colIdx }));
+          }
+          // Some return array of [row,col] pairs
+          if (Array.isArray(assign) && Array.isArray(assign[0])) {
+            return assign.map(([r, c]: [number, number]) => ({ rowIdx: r, colIdx: c }));
+          }
+          // Rare: array of row index per column index
+          if (Array.isArray(assign) && assign.length === cols && typeof assign[0] === 'number') {
+            return assign.map((rowIdx: number, colIdx: number) => ({ rowIdx, colIdx }));
+          }
+          return [];
+        };
+
+        const normAssign = normalizeAssignment(assignment, rows, cols);
 
         const resultAssignments: Assignment[] = [];
-        let totalCost = 0;
-
-        assignment.forEach((colIdx, rowIdx) => {
-          if (colIdx < cols && rowIdx < rows && colIdx !== -1) {
+        normAssign.forEach(({ rowIdx, colIdx }: { rowIdx: number, colIdx: number }) => {
+          if (colIdx < cols && rowIdx < rows) {
             const cost = matrix[rowIdx][colIdx];
             if (cost < bigM / 2) {
-              resultAssignments.push({ 
-                my: myTeam[rowIdx], 
-                position: required[colIdx],
-                cost: cost
-              });
-              totalCost += cost;
+              const my = { ...myTeam[rowIdx] };
+              // Ensure we have display fields populated
+              my.name = coalesceName(my) || my.name || "";
+              resultAssignments.push({ my, position: required[colIdx], cost });
             }
           }
         });
 
         if (resultAssignments.length === required.length) {
-          results.push({ formation, assignments: resultAssignments, totalCost });
+          const total = resultAssignments.reduce((s, r) => s + (typeof r.cost === 'number' ? r.cost : 0), 0);
+          topLineups.push({ formation, assignments: resultAssignments, totalCost: total });
+          if (total < lowest) {
+            lowest = total;
+            best = { formation, assignments: resultAssignments, totalCost: total };
+          }
         }
       });
 
-      if (results.length === 0) {
-        alert("Could not find a valid optimized team.");
-        setIsOptimizing(false);
-        return;
-      }
-
-      // Sort by total cost and get top 3
-      results.sort((a, b) => a.totalCost - b.totalCost);
-      const top3 = results.slice(0, 3);
+      topLineups.sort((a, b) => a.totalCost - b.totalCost);
+      const top3 = topLineups.slice(0, 3);
       setTopLineups(top3);
 
-      const best = results[0];
+      if (!best) { 
+        alert("Could not find a valid optimized team."); 
+        setIsOptimizing(false);
+        return; 
+      }
+
+      // Matchup analysis + suggestion with robust fallback
+      const matchup = analyzeMatchups(best.assignments, opponentTeam);
+      const safeSuggestion =
+        (matchup?.finalSuggestion) ||
+        (opp?.suggestions?.[0]) ||
+        "Balanced plan; no clear systemic mismatch.";
+
       const homeTeam: TeamData = {
         style: { color: "#e53935", numberColor: "#fff", nameColor: "#fff" },
         squad: groupByFormation(best.assignments)
@@ -308,14 +366,6 @@ const Optimizer: React.FC<OptimizerProps> = ({ onOptimization }) => {
         squad: groupByFormation(awayAssignments)
       };
 
-      const oppFormation = detectOpponentFormation(opponentTeam);
-      const opponentAnalysis = analyzeOpponentTeam(opponentTeam);
-      const matchup = analyzeMatchups(best.assignments, opponentTeam);
-
-      const finalSuggestion = matchup?.suggestions?.length 
-        ? matchup.suggestions.join(" | ")
-        : (opponentAnalysis?.suggestions?.[0] || "Balanced approach");
-
       const optimizationResult: OptimizationResult = {
         formation: best.formation,
         assignment: best.assignments,
@@ -323,9 +373,23 @@ const Optimizer: React.FC<OptimizerProps> = ({ onOptimization }) => {
         homeTeam,
         awayTeam,
         opponentFormation: oppFormation,
-        opponentAnalysis,
-        matchup,
-        finalSuggestion
+        opponentAnalysis: {
+          insights: opp?.insights || {
+            backlinePace: 0,
+            backlineAerial: 0,
+            midfieldStamina: 0,
+            midfieldPress: 0,
+            attackSpeed: 0,
+            attackFinishing: 0
+          },
+          suggestions: opp?.suggestions || [],
+          finalSuggestion: opp?.finalSuggestion || ""
+        },
+        matchup: {
+          insights: matchup?.insights || [],
+          suggestions: matchup?.suggestions || []
+        },
+        finalSuggestion: safeSuggestion
       };
 
       setResult(optimizationResult);
@@ -351,7 +415,7 @@ const Optimizer: React.FC<OptimizerProps> = ({ onOptimization }) => {
             <label className="text-sm font-medium">Upload My Team CSV:</label>
             <input 
               type="file" 
-              onChange={e => handleUpload(e, true)}
+              onChange={onMyCSV}
               accept=".csv"
               className="w-full p-2 border border-input rounded-md bg-background"
             />
@@ -366,7 +430,7 @@ const Optimizer: React.FC<OptimizerProps> = ({ onOptimization }) => {
             <label className="text-sm font-medium">Upload Opponent Team CSV (with 'slot' column):</label>
             <input 
               type="file" 
-              onChange={e => handleUpload(e, false)}
+              onChange={onOppCSV}
               accept=".csv"
               className="w-full p-2 border border-input rounded-md bg-background"
             />
@@ -378,7 +442,7 @@ const Optimizer: React.FC<OptimizerProps> = ({ onOptimization }) => {
           </div>
 
           <Button 
-            onClick={runOptimization} 
+            onClick={onOptimize} 
             disabled={myTeam.length < 11 || opponentTeam.length < 11 || isOptimizing}
             className="w-full"
           >
@@ -422,7 +486,7 @@ const Optimizer: React.FC<OptimizerProps> = ({ onOptimization }) => {
                             {assignment.my.number || index + 1}
                           </TableCell>
                           <TableCell>
-                            {`${assignment.my.firstName} ${assignment.my.lastName}`.trim() || assignment.my.name || 'Unknown'}
+                            {displayFullName(assignment.my)}
                           </TableCell>
                           <TableCell>{assignment.position}</TableCell>
                           <TableCell className="text-right font-mono">
