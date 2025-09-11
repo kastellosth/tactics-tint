@@ -7,19 +7,9 @@ interface Player {
 }
 
 export const inferOpponentFormation = (opponent: Player[]): string => {
-  const counts = { df: 0, mid: 0, att: 0 };
-  
-  opponent.forEach(p => {
-    const role = getRoleFromSlot(p.slot || p.position || '');
-    if (role === 'defender') counts.df++;
-    if (role === 'midfielder') counts.mid++;
-    if (role === 'attacker') counts.att++;
-  });
-  
-  // Default to 4-3-3 if unclear
-  const defenders = counts.df || 4;
-  const midfielders = counts.mid || 3;
-  const attackers = Math.max(1, counts.att || 3);
-  
-  return `${defenders}-${midfielders}-${attackers}`;
+  const roles = (opponent || []).map(p => getRoleFromSlot(p.slot || p.position || ''));
+  const d = roles.filter(r => r === "defender").length;
+  const m = roles.filter(r => r === "midfielder").length;
+  const a = roles.filter(r => r === "attacker").length;
+  return `${d}-${m}-${a}`; // e.g., "4-3-3"
 };

@@ -1,258 +1,305 @@
-// Opponent analysis and matchup evaluation
-import { getRoleFromSlot } from './formationPositions';
+// Parsing + opponent team analysis + per-assignment matchup insights.
+// All thresholds/weights pulled from tacticalConfig.ts.
 
-interface Player {
-  id: string;
-  firstName: string;
-  lastName: string;
-  name?: string;
-  preferredFoot?: string;
-  height: number;
-  position: string;
-  number?: number;
-  quality: number;
-  speed: number;
-  stamina: number;
-  strength: number;
-  balance: number;
-  agility: number;
-  jumping: number;
-  heading?: number;
-  aerial?: number;
-  passing?: number;
-  vision?: number;
-  firstTouch?: number;
-  finishing?: number;
-  tackling?: number;
-  positioning?: number;
-  pressResistance?: number;
-  offBall?: number;
-  slot?: string;
-}
+import { TACTICAL_CONFIG } from "./tacticalConfig";
+import { getRoleFromSlot } from "./formationPositions";
 
-interface OpponentAnalysis {
-  insights: {
-    backlinePace: number;
-    backlineAerial: number;
-    midfieldStamina: number;
-    midfieldPress: number;
-    attackSpeed: number;
-    attackFinishing: number;
-  };
-  suggestions: string[];
-  finalSuggestion: string;
-}
+/* ----------------------------- Parsing helpers ---------------------------- */
 
-interface MatchupAnalysis {
-  insights: string[];
-  suggestions: string[];
-  finalSuggestion: string;
-}
-
-interface Assignment {
-  my: Player;
-  position: string;
-  cost?: number;
-}
-
-// Safe numeric conversion
-const safeNum = (val: any, defaultVal = 0): number => {
-  const num = Number(val);
-  return isNaN(num) ? defaultVal : Math.max(0, Math.min(100, num));
+const normalizePreferredFoot = (v: any): string => {
+  const s = String(v || "").trim().toLowerCase();
+  if (!s) return "";
+  if (s.startsWith("r")) return "R";
+  if (s.startsWith("l")) return "L";
+  if (s.startsWith("b")) return "B";
+  return "";
 };
 
-// Enhanced CSV parser for opponent team
-export const parseOpponentCSV = (text: string): Player[] => {
-  const lines = text.trim().split('\n');
-  const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-  
-  return lines.slice(1).map(line => {
-    const values = line.split(',').map(v => v.trim());
-    const obj: Record<string, string> = {};
-    headers.forEach((k, i) => obj[k] = values[i] || '');
-    
-    // Normalize position to slot if needed
-    let slot = obj.slot || obj.position;
-    if (!slot && obj.number) {
-      slot = obj.number; // fallback to jersey number
-    }
-    
+const pick = (headers: string[], values: string[], ...candidates: string[]): string => {
+  for (const name of candidates) {
+    const i = headers.indexOf(name.toLowerCase());
+    if (i >= 0) return values[i];
+  }
+  return "";
+};
+
+const pickN = (headers: string[], values: string[], candidates: string[], fallback = 0): number => {
+  const raw = pick(headers, values, ...candidates);
+  if (raw === "" || raw == null) return fallback;
+  const n = parseFloat(raw);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+export function inferOpponentFormation(opponent: any[]): string {
+  const roles = (opponent || []).map(p => getRoleFromSlot(p.slot || p.position));
+  const d = roles.filter(r => r === "defender").length;
+  const m = roles.filter(r => r === "midfielder").length;
+  const a = roles.filter(r => r === "attacker").length;
+  return `${d}-${m}-${a}`; // e.g., "4-3-3"
+}
+
+// Public: robust CSV parser for opponent squads (keeps existing behavior)
+export function parseOpponentCSV(text: string): any[] {
+  const lines = String(text || "").replace(/\r/g, "").trim().split("\n");
+  if (!lines.length) return [];
+
+  const rawHeaders = lines[0].split(",").map((h) => h.trim());
+  const headers = rawHeaders.map((h) => h.toLowerCase());
+
+  return lines.slice(1).map((line) => {
+    const values = line.split(",").map((v) => v.trim());
+
+    const firstName = pick(headers, values, "firstname", "first_name");
+    const lastName  = pick(headers, values, "lastname", "last_name");
+    const name =
+      (pick(headers, values, "name", "player", "displayname") ||
+        `${firstName} ${lastName}`).trim();
+
+    const numberRaw = pick(headers, values, "number", "jersey", "kit", "shirt", "id");
+    const number = numberRaw ? parseInt(numberRaw, 10) || 0 : 0;
+
+    const preferredFoot = normalizePreferredFoot(
+      pick(headers, values, "preferredfoot", "foot")
+    );
+
+    const slotOrPos = (pick(headers, values, "slot", "position") || "").toUpperCase();
+
+    const num = (keys: string[], fb = 0) => pickN(headers, values, keys, fb);
+
     return {
-      id: obj.id || obj.number || `opp_${Math.random()}`,
-      firstName: obj.firstname || obj.first_name || '',
-      lastName: obj.lastname || obj.last_name || '',
-      name: obj.name || '',
-      preferredFoot: obj.preferredfoot || obj.preferred_foot || obj.foot,
-      height: safeNum(obj.height, 180),
-      position: (obj.position || '').toUpperCase(),
-      number: safeNum(obj.number),
-      quality: safeNum(obj.quality),
-      speed: safeNum(obj.speed),
-      stamina: safeNum(obj.stamina),
-      strength: safeNum(obj.strength),
-      balance: safeNum(obj.balance),
-      agility: safeNum(obj.agility),
-      jumping: safeNum(obj.jumping),
-      heading: safeNum(obj.heading),
-      aerial: safeNum(obj.aerial),
-      passing: safeNum(obj.passing),
-      vision: safeNum(obj.vision),
-      firstTouch: safeNum(obj.firsttouch || obj.first_touch),
-      finishing: safeNum(obj.finishing),
-      tackling: safeNum(obj.tackling),
-      positioning: safeNum(obj.positioning),
-      pressResistance: safeNum(obj.pressresistance || obj.press_resistance),
-      offBall: safeNum(obj.offball || obj.off_ball),
-      slot: slot
+      id: pick(headers, values, "id"),
+      firstName,
+      lastName,
+      name,
+      number,
+      preferredFoot,
+      position: slotOrPos,        // keep as "position" for downstream compatibility
+      slot: slotOrPos,            // also expose "slot" to ease lookups
+      height:      num(["height"]),
+      quality:     num(["quality", "qualityscore", "overall"]),
+      speed:       num(["speed"]),
+      stamina:     num(["stamina"]),
+      strength:    num(["strength"]),
+      balance:     num(["balance"]),
+      agility:     num(["agility"]),
+      jumping:     num(["jumping"]),
+      heading:     num(["heading"]),
+      aerial:      num(["aerial"]),
+      passing:     num(["passing"]),
+      vision:      num(["vision"]),
+      firstTouch:  num(["firsttouch", "first_touch"]),
+      finishing:   num(["finishing"]),
+      tackling:    num(["tackling"]),
+      positioning: num(["positioning"]),
+      pressResistance: num(["pressresistance", "press_resistance"]),
+      offBall:     num(["offball", "off_ball"])
     };
   });
-};
+}
 
-// Analyze opponent team characteristics
-export const analyzeOpponentTeam = (opponent: Player[]): OpponentAnalysis => {
-  const defenders = opponent.filter(p => {
-    const role = getRoleFromSlot(p.slot || '');
-    return role === 'defender';
-  });
-  
-  const midfielders = opponent.filter(p => {
-    const role = getRoleFromSlot(p.slot || '');
-    return role === 'midfielder';
-  });
-  
-  const attackers = opponent.filter(p => {
-    const role = getRoleFromSlot(p.slot || '');
-    return role === 'attacker';
-  });
-  
-  // Calculate averages
-  const avgDefSpeed = defenders.length > 0 
-    ? defenders.reduce((sum, p) => sum + safeNum(p.speed), 0) / defenders.length 
-    : 70;
-  
-  const avgDefAerial = defenders.length > 0
-    ? defenders.reduce((sum, p) => sum + (safeNum(p.aerial) + safeNum(p.heading) + safeNum(p.jumping)) / 3, 0) / defenders.length
-    : 70;
-  
-  const avgMidStamina = midfielders.length > 0
-    ? midfielders.reduce((sum, p) => sum + safeNum(p.stamina), 0) / midfielders.length
-    : 70;
-  
-  const avgMidPress = midfielders.length > 0
-    ? midfielders.reduce((sum, p) => sum + safeNum(p.pressResistance), 0) / midfielders.length
-    : 70;
-  
-  const avgAttSpeed = attackers.length > 0
-    ? attackers.reduce((sum, p) => sum + safeNum(p.speed), 0) / attackers.length
-    : 70;
-  
-  const avgAttFinishing = attackers.length > 0
-    ? attackers.reduce((sum, p) => sum + safeNum(p.finishing), 0) / attackers.length
-    : 70;
-  
-  // Generate suggestions based on weaknesses
-  const suggestions: string[] = [];
-  
-  if (avgDefSpeed < 65) {
-    suggestions.push('Exploit slow defense with pace on the wings');
+/* --------------------------- Team-level aggregates ------------------------ */
+
+const avg = (arr: number[]): number => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
+const mean = avg;
+
+const compositeAerial = (p: any): number => avg([p.jumping || 0, p.heading || 0, p.aerial || 0]);
+const compositePace   = (p: any): number => avg([p.speed || 0, p.agility || 0]); // quickness + top speed
+const compositePress  = (p: any): number => avg([p.tackling || 0, p.positioning || 0]);
+
+// Public: analyze opponent squad globally and suggest broad tactical ideas.
+export function analyzeOpponentTeam(opponentArray: any[]): any {
+  const opp = Array.isArray(opponentArray) ? opponentArray : [];
+  if (!opp.length) {
+    return {
+      insights: {
+        backlinePace: 0,
+        backlineAerial: 0,
+        midfieldStamina: 0,
+        midfieldPress: 0,
+        attackSpeed: 0,
+        attackFinishing: 0
+      },
+      suggestions: []
+    };
   }
-  if (avgDefAerial < 70) {
-    suggestions.push('Target aerial duels and set pieces');
-  }
-  if (avgMidStamina < 70) {
-    suggestions.push('Press high to exploit stamina weaknesses');
-  }
-  if (avgMidPress < 65) {
-    suggestions.push('Apply constant pressure in midfield');
-  }
-  if (avgAttSpeed < 70) {
-    suggestions.push('Play a high defensive line');
-  }
-  if (avgAttFinishing < 65) {
-    suggestions.push('Allow shots from distance, focus on crosses');
-  }
-  
-  if (suggestions.length === 0) {
-    suggestions.push('Balanced approach against well-rounded opponent');
-  }
-  
-  const finalSuggestion = suggestions.length > 1 
-    ? suggestions.slice(0, 2).join(' and ').toLowerCase()
-    : suggestions[0].toLowerCase();
-  
-  return {
-    insights: {
-      backlinePace: Math.round(avgDefSpeed),
-      backlineAerial: Math.round(avgDefAerial),
-      midfieldStamina: Math.round(avgMidStamina),
-      midfieldPress: Math.round(avgMidPress),
-      attackSpeed: Math.round(avgAttSpeed),
-      attackFinishing: Math.round(avgAttFinishing)
-    },
-    suggestions,
-    finalSuggestion: `Focus on ${finalSuggestion}`
+
+  const roles = opp.map((p) => getRoleFromSlot(p.slot || p.position));
+  const defenders  = opp.filter((_, i) => roles[i] === "defender");
+  const mids       = opp.filter((_, i) => roles[i] === "midfielder");
+  const attackers  = opp.filter((_, i) => roles[i] === "attacker");
+
+  const backlinePace      = mean(defenders.map(compositePace));
+  const backlineAerial    = mean(defenders.map(compositeAerial));
+  const midfieldStamina   = mean(mids.map((p) => p.stamina || 0));
+  const midfieldPress     = mean(mids.map(compositePress));
+  const attackSpeed       = mean(attackers.map((p) => p.speed || 0));
+  const attackFinishing   = mean(attackers.map((p) => p.finishing || 0));
+
+  const insights = {
+    backlinePace,
+    backlineAerial,
+    midfieldStamina,
+    midfieldPress,
+    attackSpeed,
+    attackFinishing
   };
-};
 
-// Analyze specific matchups
-export const analyzeMatchups = (assignments: Assignment[], opponent: Player[]): MatchupAnalysis => {
-  const insights: string[] = [];
+  // Team-level suggestions using centralized thresholds
+  const TT = TACTICAL_CONFIG.teamThresholds;
   const suggestions: string[] = [];
-  
-  // Find key matchup battles
-  assignments.forEach(assignment => {
-    const myPlayer = assignment.my;
-    const slot = assignment.position;
-    const oppPlayer = opponent.find(p => String(p.slot) === String(slot));
-    
-    if (oppPlayer) {
-      const myQuality = safeNum(myPlayer.quality);
-      const oppQuality = safeNum(oppPlayer.quality);
-      const qualityDiff = myQuality - oppQuality;
-      
-      if (Math.abs(qualityDiff) > 15) {
-        const playerName = `${myPlayer.firstName} ${myPlayer.lastName}`.trim();
-        const oppName = `${oppPlayer.firstName} ${oppPlayer.lastName}`.trim();
-        
-        if (qualityDiff > 15) {
-          insights.push(`${playerName} has a significant advantage over ${oppName} at position ${slot}`);
-        } else {
-          insights.push(`${oppName} poses a threat to ${playerName} at position ${slot}`);
-        }
+  if (backlinePace     <= (TT.backlinePaceMax      ?? 70))
+    suggestions.push("Exploit wings and direct runs (their backline pace is beatable).");
+  if (backlineAerial   <= (TT.backlineAerialMax    ?? 65))
+    suggestions.push("Cross more and attack aerially (their aerial strength is limited).");
+  if (midfieldStamina  <= (TT.midfieldStaminaMax   ?? 70))
+    suggestions.push("Increase tempo and press in midfield (stamina edge).");
+  if (midfieldPress    <= (TT.midfieldPressMax     ?? 65))
+    suggestions.push("Play through the thirds; focus on short combinations (low pressing threat).");
+  if (attackSpeed      >= (TT.attackSpeedMin       ?? 85))
+    suggestions.push("Protect depth; keep a compact line vs pacey forwards.");
+  if (attackFinishing  >= (TT.attackFinishingMin   ?? 85))
+    suggestions.push("Limit shooting lanes; deny entries to zone 14.");
+
+  return { insights, suggestions };
+}
+
+/* ------------------------- Per-assignment matchups ------------------------ */
+
+const isWingSlot = (slot: string): boolean => {
+  const s = String(slot || "").toUpperCase();
+  return /(RW|LW|7|11|RWB|LWB)/.test(s);
+};
+const isMidCM = (slot: string): boolean => /CM|^8(L|R)?$/.test(String(slot || "").toUpperCase());
+const isMidDM = (slot: string): boolean => /CDM|DM|^6(L|R)?$/.test(String(slot || "").toUpperCase());
+const isMidAM = (slot: string): boolean => /CAM|AM|^10(L|R)?$/.test(String(slot || "").toUpperCase());
+const isStriker = (slot: string): boolean => /ST|CF|^9(L|R)?$/.test(String(slot || "").toUpperCase());
+
+const nz = (v: any, d = 0): number => (Number.isFinite(v) ? v : d);
+
+// Public: analyze individual matchups from your assignments against the opponent
+// myAssignments: [{ my: <player>, position: <slot> }, ...]
+// opponent: raw opponent array (with slot/position)
+export function analyzeMatchups(myAssignments: any[], opponent: any[]): any {
+  const oppBySlot = new Map(
+    (opponent || []).map((p) => [String(p.slot || p.position), p])
+  );
+
+  const scores = { wings: 0, midfield: 0, aerial: 0, defense: 0, creation: 0 };
+  const insights: string[] = [];
+
+  const { thresholds: T, deltaImpact, suggestionWeights } = TACTICAL_CONFIG;
+  const FAST = T?.fast ?? 0.12;
+  const AIR  = T?.air  ?? 0.10;
+  const TECH = T?.qual ?? 0.10;
+  const STR  = T?.str  ?? 0.10;
+  const STAM = T?.stam ?? 0.12;
+
+  // Add score to a category with config-driven weights
+  const add = (k: string, v: number) => {
+    const catW =
+      k in (suggestionWeights || {}) ? (suggestionWeights as any)[k] : 1.0;
+    const deltaW =
+      k === "wings"    ? (deltaImpact?.speed    ?? 1.0) :
+      k === "midfield" ? (deltaImpact?.stamina  ?? 1.0) :
+      k === "aerial"   ? (deltaImpact?.jumping  ?? 1.0) :
+      k === "defense"  ? (deltaImpact?.speed    ?? 1.0) :
+      k === "creation" ? (deltaImpact?.quality  ?? 1.0) :
+      1.0;
+    scores[k] = (scores[k] || 0) + Math.max(0, v) * catW * deltaW;
+  };
+
+  for (const asg of myAssignments || []) {
+    const slot = String(asg.position || "");
+    const me = asg.my || {};
+    const opp = oppBySlot.get(slot) || null;
+
+    // Normalize gaps to 0–1 for threshold comparisons
+    const dSpeed   = (nz(me.speed)    - nz(opp?.speed, 50))       / 100;
+    const dAgility = (nz(me.agility)  - nz(opp?.agility, 50))     / 100;
+    const dStam    = (nz(me.stamina)  - nz(opp?.stamina, 50))     / 100;
+    const dStrength= (nz(me.strength) - nz(opp?.strength, 50))    / 100;
+    const dAerial  = ((nz(me.jumping)+nz(me.heading)+nz(me.aerial)) -
+                      (nz(opp?.jumping,50)+nz(opp?.heading,50)+nz(opp?.aerial,50))) / 300;
+    const myTech   = (nz(me.passing)+nz(me.vision)+nz(me.firstTouch)) / 300;
+    const oppPress = (nz(opp?.tackling,50)+nz(opp?.positioning,50)) / 200;
+    const dTech    = myTech - oppPress; // creation vs pressure reading
+
+    // Wings: speed/agility edges vs fullbacks/wingbacks
+    if (isWingSlot(slot)) {
+      const paceEdge = Math.max(dSpeed, dAgility);
+      if (paceEdge >= FAST) {
+        insights.push(`Wing advantage at ${slot}: pace/1v1 edge.`);
+        add("wings", paceEdge);
+        add("creation", Math.max(0, dTech)); // good to note end-product potential
+      }
+      if (dAerial >= AIR) {
+        insights.push(`Aerial mismatch wide at ${slot}: target far-post crosses.`);
+        add("aerial", dAerial);
       }
     }
-  });
-  
-  // Generate tactical suggestions based on matchups
-  const advantagePositions = assignments.filter(a => {
-    const oppPlayer = opponent.find(p => String(p.slot) === String(a.position));
-    return oppPlayer && safeNum(a.my.quality) > safeNum(oppPlayer.quality) + 10;
-  });
-  
-  if (advantagePositions.length > 0) {
-    const roles = advantagePositions.map(a => getRoleFromSlot(a.position));
-    if (roles.includes('attacker')) {
-      suggestions.push('Exploit attacking superiority with direct play');
+
+    // Midfield: stamina (tempo), technique vs press
+    if (isMidCM(slot) || isMidDM(slot) || isMidAM(slot)) {
+      if (dStam >= STAM) {
+        insights.push(`Midfield engine at ${slot}: tempo/pressing edge (stamina).`);
+        add("midfield", dStam);
+      }
+      if (dTech >= TECH) {
+        insights.push(`Creation lane at ${slot}: technical edge vs their press.`);
+        add("creation", dTech);
+      }
+      if (dStrength >= STR && isMidDM(slot)) {
+        insights.push(`Screen advantage at ${slot}: strength in duels.`);
+        add("defense", dStrength);
+      }
     }
-    if (roles.includes('midfielder')) {
-      suggestions.push('Control the game through midfield dominance');
+
+    // Striker vs CBs: finishing lanes emerge from pace or aerial edges
+    if (isStriker(slot)) {
+      const finLane = Math.max(dSpeed, dAerial);
+      if (finLane >= Math.min(FAST, AIR)) {
+        insights.push(`Finishing lanes at ${slot}: exploit depth or aerials.`);
+        add("creation", finLane);
+      }
     }
-    if (roles.includes('defender')) {
-      suggestions.push('Build attacks from the back with confidence');
+
+    // Defensive risk flag (don't count positively, just warn)
+    if (!opp) continue;
+    if (getRoleFromSlot(slot) === "defender") {
+      const risk = (nz(opp.speed) - nz(me.speed)) / 100;
+      if (risk > FAST) {
+        insights.push(`Risk at ${slot}: their attacker is significantly faster — protect depth.`);
+        // no positive score; this is a cautionary note
+      }
     }
   }
-  
-  if (suggestions.length === 0) {
-    suggestions.push('Maintain tactical discipline and wait for opportunities');
+
+  // Generate final suggestions based on accumulated scores
+  const suggestions: string[] = [];
+  const topCategories = Object.entries(scores)
+    .sort(([,a], [,b]) => b - a)
+    .slice(0, 2)
+    .map(([cat]) => cat);
+
+  if (topCategories.includes('wings')) {
+    suggestions.push('Exploit wing advantages with direct runs and crosses');
   }
-  
+  if (topCategories.includes('midfield')) {
+    suggestions.push('Control tempo through midfield superiority');
+  }
+  if (topCategories.includes('creation')) {
+    suggestions.push('Focus on technical build-up and key passes');
+  }
+  if (topCategories.includes('aerial')) {
+    suggestions.push('Target aerial duels and set pieces');
+  }
+  if (topCategories.includes('defense')) {
+    suggestions.push('Maintain defensive structure and press intelligently');
+  }
+
   const finalSuggestion = suggestions.length > 0 
     ? suggestions[0] 
     : 'Balanced tactical approach';
-  
-  return {
-    insights: insights.length > 0 ? insights : ['Evenly matched across all positions'],
-    suggestions,
-    finalSuggestion
-  };
-};
+
+  return { scores, insights, suggestions, finalSuggestion };
+}

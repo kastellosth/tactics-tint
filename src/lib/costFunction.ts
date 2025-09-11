@@ -1,230 +1,246 @@
-// Football-aware cost function for lineup optimization
-interface Player {
-  id: string;
-  firstName: string;
-  lastName: string;
-  name?: string;
-  preferredFoot?: string;
-  height: number;
-  position: string;
-  number?: number;
-  quality: number;
-  speed: number;
-  stamina: number;
-  strength: number;
-  balance: number;
-  agility: number;
-  jumping: number;
-  heading?: number;
-  aerial?: number;
-  passing?: number;
-  vision?: number;
-  firstTouch?: number;
-  finishing?: number;
-  tackling?: number;
-  positioning?: number;
-  pressResistance?: number;
-  offBall?: number;
-}
+// Lower is better. Negative means favorable for us.
 
-interface OpponentInsights {
-  backlinePace?: number;
-  backlineAerial?: number;
-  midfieldStamina?: number;
-  midfieldPress?: number;
-  attackSpeed?: number;
-  attackFinishing?: number;
-}
+import { getRoleFromSlot } from "./formationPositions";
 
-// Role mapping from slot to required skills
-const getRoleFromSlot = (slot: string): string => {
-  const slotNum = String(slot).match(/\d+/)?.[0];
-  switch (slotNum) {
-    case '1': return 'GK';
-    case '2': case '5': return 'FB_R'; // RB
-    case '3': case '4': return 'CB';
-    case '6': return 'CDM';
-    case '7': case '8': return 'CM';
-    case '10': return 'CAM';
-    case '11': return slot.includes('L') ? 'W_L' : 'W_R'; // Wings
-    case '9': return 'ST';
-    default: return 'CM';
+// ---------- helpers ----------
+const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
+const norm100 = (v: any): number => {
+  const n = parseFloat(v);
+  return isNaN(n) ? 0 : clamp01(n / 100);
+};
+const asNumber = (v: any, d = 0): number => {
+  const n = parseFloat(v);
+  return isNaN(n) ? d : n;
+};
+
+// Normalize preferred foot to "L" | "R" | "B" | ""
+const normFoot = (f: any): string => {
+  const s = String(f || "").trim().toLowerCase();
+  if (!s) return "";
+  if (s.startsWith("r")) return "R";
+  if (s.startsWith("l")) return "L";
+  if (s.startsWith("b")) return "B";
+  return "";
+};
+
+const getQ = (p: any): number => asNumber(p?.quality ?? p?.Overall ?? p?.overall ?? 0, 0);
+
+// Map slot → coarse role family used by penalties and weights
+const roleSubfamilyFromSlot = (slot: string): string => {
+  const s = String(slot || "").toUpperCase().trim();
+  // exact-ish buckets (order matters; test most-specific first)
+  if (s === "1" || s === "GK") return "GK";
+  if (/^(CB|RCB|LCB|3|3L|3R|4|4L|4R)$/.test(s)) return "CB";
+  if (/^(RB|RWB|2)$/.test(s)) return "RB";
+  if (/^(LB|LWB|5)$/.test(s)) return "LB";
+  if (/^(DM|CDM|6|6L|6R)$/.test(s)) return "DM";
+  if (/^(CM|RCM|LCM|8|8L|8R)$/.test(s)) return "CM";
+  if (/^(AM|CAM|10)$/.test(s)) return "AM";
+  if (/^(RW|RM|7|11R)$/.test(s)) return "RW";
+  if (/^(LW|LM|11|11L)$/.test(s)) return "LW";
+  if (/^(ST|CF|9)$/.test(s)) return "ST";
+  return "CM";
+};
+
+const footFit = (slot: string, playerFoot: any): number => {
+  const sf = String(slot || "").toUpperCase();
+  const pf = normFoot(playerFoot);
+  if (!pf) return 1;
+  if (pf === "B") return 1;
+
+  const isLeftSide = /(L|LB|LWB|11L|3L|4L|6L|8L|LM|LCB|LCM|LDM|LAM)/.test(sf);
+  const isRightSide = /(R|RB|RWB|11R|3R|4R|6R|8R|RM|RCB|RCM|RDM|RAM)/.test(sf);
+
+  // Fullbacks: same-foot preferred; Wingers: slight preference for inverted
+  if (/RB|RWB|LB|LWB/.test(sf)) {
+    if ((isLeftSide && pf === "L") || (isRightSide && pf === "R")) return 1;
+    return 0.9;
   }
-};
-
-// Normalize preferred foot
-const normalizePreferredFoot = (foot?: string): string => {
-  if (!foot) return 'B';
-  const f = foot.toUpperCase();
-  if (f.startsWith('R')) return 'R';
-  if (f.startsWith('L')) return 'L';
-  if (f.includes('BOTH') || f === 'B') return 'B';
-  return 'B';
-};
-
-// Safe numeric conversion
-const safeNum = (val: any, defaultVal = 0): number => {
-  const num = Number(val);
-  return isNaN(num) ? defaultVal : Math.max(0, Math.min(100, num));
-};
-
-// Calculate role fitness
-const calculateRoleFitness = (player: Player, role: string): number => {
-  const quality = safeNum(player.quality);
-  const speed = safeNum(player.speed);
-  const stamina = safeNum(player.stamina);
-  const strength = safeNum(player.strength);
-  const balance = safeNum(player.balance);
-  const agility = safeNum(player.agility);
-  const jumping = safeNum(player.jumping);
-  const heading = safeNum(player.heading);
-  const aerial = safeNum(player.aerial);
-  const passing = safeNum(player.passing);
-  const vision = safeNum(player.vision);
-  const firstTouch = safeNum(player.firstTouch);
-  const finishing = safeNum(player.finishing);
-  const tackling = safeNum(player.tackling);
-  const positioning = safeNum(player.positioning);
-  const pressResistance = safeNum(player.pressResistance);
-  const offBall = safeNum(player.offBall);
-  const height = safeNum(player.height, 180);
-
-  // Aerial power composite
-  const aerialPower = (aerial + heading + jumping + (height - 160) / 2) / 4;
-
-  switch (role) {
-    case 'GK':
-      return (quality * 0.4 + agility * 0.2 + balance * 0.15 + positioning * 0.15 + jumping * 0.1);
-    
-    case 'CB':
-      return (quality * 0.25 + strength * 0.2 + aerialPower * 0.2 + tackling * 0.15 + positioning * 0.2);
-    
-    case 'FB_R':
-    case 'FB_L':
-      return (quality * 0.2 + speed * 0.25 + stamina * 0.2 + tackling * 0.15 + passing * 0.1 + agility * 0.1);
-    
-    case 'CDM':
-      return (quality * 0.2 + tackling * 0.25 + passing * 0.2 + stamina * 0.15 + positioning * 0.1 + pressResistance * 0.1);
-    
-    case 'CM':
-      return (quality * 0.2 + passing * 0.2 + stamina * 0.2 + vision * 0.15 + firstTouch * 0.1 + pressResistance * 0.15);
-    
-    case 'CAM':
-      return (quality * 0.25 + passing * 0.2 + vision * 0.2 + firstTouch * 0.15 + finishing * 0.1 + offBall * 0.1);
-    
-    case 'W_R':
-    case 'W_L':
-      return (quality * 0.2 + speed * 0.25 + agility * 0.2 + finishing * 0.15 + offBall * 0.1 + balance * 0.1);
-    
-    case 'ST':
-      return (quality * 0.25 + finishing * 0.25 + positioning * 0.15 + aerialPower * 0.15 + offBall * 0.1 + strength * 0.1);
-    
-    default:
-      return quality;
+  if (/11L|11R|7|RW|LW|RM|LM/.test(sf)) {
+    if ((isLeftSide && pf === "R") || (isRightSide && pf === "L")) return 1;
+    return 0.95;
   }
+  return 1;
 };
 
-// Calculate footedness fit for flanks
-const calculateFootednessFit = (player: Player, slot: string): number => {
-  const foot = normalizePreferredFoot(player.preferredFoot);
-  const role = getRoleFromSlot(slot);
-  
-  if (role === 'FB_R' || role === 'W_R') {
-    // Right flank - prefer right foot
-    if (foot === 'R') return 1.0;
-    if (foot === 'B') return 0.95;
-    return 0.85; // Left foot (inverted)
-  }
-  
-  if (role === 'FB_L' || role === 'W_L') {
-    // Left flank - prefer left foot
-    if (foot === 'L') return 1.0;
-    if (foot === 'B') return 0.95;
-    return 0.85; // Right foot (inverted)
-  }
-  
-  return 1.0; // No penalty for central positions
+// ---------- core pieces ----------
+
+// Legacy matchup signal, centered at 0 (negative = advantage for us)
+const coreMatchupCost = (me: any, opp: any): number => {
+  if (!opp) return 0.0;
+
+  const qMe = norm100(getQ(me));
+  const qOp = norm100(getQ(opp));
+
+  const paceMe = norm100(me?.speed ?? me?.pace ?? 0);
+  const paceOp = norm100(opp?.speed ?? opp?.pace ?? 0);
+
+  const airMe = clamp01(norm100(me?.aerial ?? 0) * 0.6 + norm100(me?.jumping ?? 0) * 0.4);
+  const airOp = clamp01(norm100(opp?.aerial ?? 0) * 0.6 + norm100(opp?.jumping ?? 0) * 0.4);
+
+  const staMe = norm100(me?.stamina ?? 0);
+  const staOp = norm100(opp?.stamina ?? 0);
+
+  let c = 0.0;
+  c -= 0.35 * (qMe - qOp);
+  c -= 0.20 * (paceMe - paceOp);
+  c -= 0.15 * (airMe - airOp);
+  c -= 0.10 * (staMe - staOp);
+
+  return c;
 };
 
-// Formation vs formation multipliers
-const getFormationMultiplier = (myFormation: string, oppFormation: string): number => {
-  const formationMap: Record<string, Record<string, number>> = {
-    '4-3-3': { '4-4-2': 1.05, '3-5-2': 0.95, '4-3-3': 1.0 },
-    '4-4-2': { '4-3-3': 0.95, '3-5-2': 1.0, '4-4-2': 1.0 },
-    '3-5-2': { '4-3-3': 1.05, '4-4-2': 1.0, '3-5-2': 1.0 }
+// Penalty (>=0) for playing away from natural family
+const rolePenalty = (nativeRole: string, targetRole: string, nativeSlot: string, targetSlot: string): number => {
+  if (nativeRole === targetRole) return 0;
+
+  const famN = roleSubfamilyFromSlot(nativeSlot);
+  const famT = roleSubfamilyFromSlot(targetSlot);
+
+  const friendly = new Set([
+    "LB->CB", "RB->CB", "CB->LB", "CB->RB",
+    "CM->DM", "AM->CM", "CM->AM",
+    "LW->ST", "RW->ST", "ST->LW", "ST->RW",
+  ]);
+
+  const key = `${famN}->${famT}`;
+  if (friendly.has(key)) return 0.15;
+
+  const hostile = new Set([
+    "CB->AM", "CB->ST", "ST->CB", "LW->CB", "RW->CB",
+    "DM->ST", "ST->DM", "LB->ST", "RB->ST",
+  ]);
+  if (hostile.has(key)) return 0.45;
+
+  return 0.3;
+};
+
+// Small multiplicative nudge by role (kept tight)
+const formationMult = (myForm: string, oppForm: string, myRole: string): number => {
+  const base: Record<string, number> = {
+    GK: 1.0, CB: 1.0, LB: 1.0, RB: 1.0, DM: 1.0, CM: 1.0, AM: 1.0, LW: 1.0, RW: 1.0, ST: 1.0,
   };
-  
-  return formationMap[myFormation]?.[oppFormation] || 1.0;
+  const r = base[myRole] ?? 1.0;
+  return Math.max(0.9, Math.min(1.1, r));
 };
 
-// Calculate opponent differential
-const calculateOpponentDifferential = (
-  player: Player, 
-  opponentAtSlot: Player | null, 
-  oppInsights?: OpponentInsights
-): number => {
-  if (!opponentAtSlot) return 1.0;
-  
-  const myQuality = safeNum(player.quality);
-  const oppQuality = safeNum(opponentAtSlot.quality);
-  
-  // Base differential (positive when we're better)
-  const qualityDiff = (myQuality - oppQuality) / 100;
-  
-  // Apply insights if available
-  let insightBonus = 0;
-  if (oppInsights) {
-    // Example: if opponent has weak backline pace, favor fast defenders
-    if (oppInsights.backlinePace && oppInsights.backlinePace < 70) {
-      insightBonus += safeNum(player.speed) / 1000; // Small bonus for speed
-    }
+// Opponent insights to bias advanced fit cost
+// Returns { mul, shift } so that weakness ALWAYS helps us (more negative).
+const oppBias = (targetSlot: string, insights: any = {}): { mul: number; shift: number } => {
+  const fam = roleSubfamilyFromSlot(targetSlot);
+  const mid = 50;
+  const delta = (v: any) => (asNumber(v, mid) - mid) / 50; // -1..+1, positive => weaker
+
+  let mul = 1.0;
+  let shift = 0.0;
+
+  if (fam === "ST" || fam === "LW" || fam === "RW") {
+    // Weak backline => reduce cost via negative shift
+    shift += -0.05 * delta(insights.backlinePace);
+    shift += -0.03 * delta(insights.backlineAerial);
+  } else if (fam === "CM" || fam === "DM" || fam === "AM") {
+    // Weak midfield => reduce cost via negative shift
+    shift += -0.04 * delta(insights.midfieldStamina);
+    shift += -0.03 * delta(insights.midfieldPressRes);
   }
-  
-  return 1.0 + (qualityDiff * 0.1) + insightBonus;
+  return { mul, shift };
 };
 
-// Main cost calculation function
+// Role-specific fit score 0..1 (higher = better fit)
+const advancedFit = (player: any, targetSlot: string): number => {
+  const fam = roleSubfamilyFromSlot(targetSlot);
+
+  const WeightMap: Record<string, Record<string, number>> = {
+    GK: { reflexes: 0.35, handling: 0.25, positioning: 0.20, passing: 0.20 },
+    CB: { tackling: 0.30, strength: 0.20, aerial: 0.20, positioning: 0.15, pace: 0.15 },
+    LB: { pace: 0.25, tackling: 0.25, stamina: 0.20, crossing: 0.15, passing: 0.15 },
+    RB: { pace: 0.25, tackling: 0.25, stamina: 0.20, crossing: 0.15, passing: 0.15 },
+    DM: { tackling: 0.28, positioning: 0.22, stamina: 0.20, passing: 0.20, strength: 0.10 },
+    CM: { passing: 0.28, stamina: 0.18, vision: 0.18, tackling: 0.18, firstTouch: 0.18 },
+    AM: { vision: 0.28, passing: 0.22, firstTouch: 0.20, offBall: 0.15, finishing: 0.15 },
+    LW: { pace: 0.28, dribbling: 0.22, crossing: 0.18, firstTouch: 0.16, finishing: 0.16 },
+    RW: { pace: 0.28, dribbling: 0.22, crossing: 0.18, firstTouch: 0.16, finishing: 0.16 },
+    ST: { finishing: 0.32, offBall: 0.22, heading: 0.18, firstTouch: 0.14, pace: 0.14 },
+  };
+
+  const W = WeightMap[fam] || { passing: 1.0 };
+
+  const P: Record<string, number> = {
+    pace: norm100(player?.speed ?? player?.pace ?? 0),
+    stamina: norm100(player?.stamina ?? 0),
+    strength: norm100(player?.strength ?? 0),
+    aerial: clamp01(norm100(player?.aerial ?? 0) * 0.6 + norm100(player?.jumping ?? 0) * 0.4),
+    heading: norm100(player?.heading ?? 0),
+    tackling: norm100(player?.tackling ?? 0),
+    passing: norm100(player?.passing ?? 0),
+    vision: norm100(player?.vision ?? 0),
+    firstTouch: norm100(player?.firstTouch ?? 0),
+    finishing: norm100(player?.finishing ?? 0),
+    positioning: norm100(player?.positioning ?? 0),
+    offBall: norm100(player?.offBall ?? 0),
+    dribbling: norm100(player?.dribbling ?? 0),
+    crossing: norm100(player?.crossing ?? 0),
+    reflexes: norm100(player?.reflexes ?? 0),
+    handling: norm100(player?.handling ?? 0),
+  };
+
+  let s = 0, w = 0;
+  for (const k in W) {
+    const v = P[k] ?? 0;
+    s += v * W[k]; w += W[k];
+  }
+  if (!w) return 0;
+
+  // Foot fit multiplier
+  s *= footFit(targetSlot, player.preferredFoot);
+
+  return clamp01(s / w);
+};
+
+// ---------- PUBLIC API ----------
 export const calculatePlayerPositionCost = (
-  player: Player,
-  targetSlot: string,
-  opponentAtSlot?: Player | null,
-  myFormation?: string,
-  oppFormation?: string,
-  oppInsights?: OpponentInsights
+  player: any,
+  targetPosCode: string,        // e.g., "11L", "RB", "ST"
+  oppAtSlot: any,            // opponent player object or null
+  myFormation = "4-3-3",
+  oppFormation = "4-3-3",
+  oppInsights: any = {},     // insights on 0..100 scale
+  options: any = {}
 ): number => {
-  // Hard rule: only GK in GK position
-  const role = getRoleFromSlot(targetSlot);
-  const playerPos = player.position?.toUpperCase() || '';
-  
-  if (role === 'GK' && playerPos !== 'GK') {
-    return 1e6; // Very high cost to prevent non-GK in GK slot
-  }
-  
-  if (role !== 'GK' && playerPos === 'GK') {
-    return 1e6; // Very high cost to prevent GK in outfield
-  }
-  
-  // Calculate role fitness (0-100 scale)
-  const roleFitness = calculateRoleFitness(player, role);
-  
-  // Calculate footedness fit (0.85-1.0 scale)
-  const footednessFit = calculateFootednessFit(player, targetSlot);
-  
-  // Formation multiplier
-  const formationMult = getFormationMultiplier(myFormation || '4-3-3', oppFormation || '4-3-3');
-  
-  // Opponent differential
-  const oppDiff = calculateOpponentDifferential(player, opponentAtSlot, oppInsights);
-  
-  // Advanced fitness (70% weight)
-  const advancedFit = roleFitness * footednessFit * formationMult;
-  
-  // Opponent matchup (30% weight)
-  const matchupFit = safeNum(player.quality) * oppDiff;
-  
-  // Final fitness score
-  const finalFitness = advancedFit * 0.7 + matchupFit * 0.3;
-  
-  // Convert to cost (higher fitness = lower cost)
-  return Math.max(0.1, 110 - finalFitness);
+  const { debug = false, overrideWeights, disableOppBias = false } = options || {};
+  const ADV_W = (overrideWeights && typeof overrideWeights.ADV_W === "number")
+    ? overrideWeights.ADV_W
+    : 0.7;
+
+  const nativeRole = getRoleFromSlot(player.position);
+  const myTargetRole = getRoleFromSlot(targetPosCode);
+
+  // Legacy piece (centered at 0; negative = good for us)
+  const old = coreMatchupCost(player, oppAtSlot);
+
+  // Advanced piece (centered at 0 via 0.5 - fit)
+  const fit = advancedFit(player, targetPosCode);
+  const advPre = (0.5 - fit);
+
+  // Opponent bias: multiplicative + additive (weakness should make cost more negative)
+  const { mul: bMul, shift: bShift } = disableOppBias
+    ? { mul: 1.0, shift: 0.0 }
+    : oppBias(targetPosCode, oppInsights);
+
+  let advCost = advPre * bMul + bShift;
+
+  // Role mismatch penalty (>= 0)
+  const pen = rolePenalty(nativeRole, myTargetRole, player.position, targetPosCode);
+
+  // Formation multiplier (≈1.0)
+  const mult = formationMult(myFormation, oppFormation, myTargetRole);
+
+  // Blend and apply multiplier
+  const blended = ((1 - ADV_W) * old + ADV_W * advCost + pen);
+  const cost = blended * mult;
+
+  // Only cap the upper extreme; keep negatives as-is
+  const clamped = Math.min(2.5, cost);
+
+  return clamped;
 };
