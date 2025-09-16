@@ -1,26 +1,38 @@
-// Formation definitions and position mappings
+// formationPositions.ts
+// Side-aware, consistent slot codes.
+
 export const formationPositions: Record<string, string[]> = {
-  '4-3-3': ['1', '2', '3', '4', '5', '6', '7', '8', '10', '11L', '9'],
-  '4-4-2': ['1', '2', '3', '4', '5', '7', '8', '10', '11', '9', '9R'],
-  '3-5-2': ['1', '3', '4', '3R', '2', '5', '6', '7', '8', '9', '9R'],
-  '4-2-3-1': ['1', '2', '3', '4', '5', '6', '8', '7', '10', '11', '9'],
-  '3-4-3': ['1', '3', '4', '3R', '7', '8', '10', '11L', '11R', '9', '9L']
+  // GK, RB, RCB, LCB, LB, DM, RCM, LCM, RW, ST, LW
+  "4-3-3": ['1','2R','3R','3L','2L','6','8R','8L','11R','9','11L'],
+
+  // GK, RB, RCB, LCB, LB, DM (R), DM (L), RW, AM, LW, ST
+  "4-2-3-1": ['1','2R','3R','3L','2L','6R','6L','11R','10','11L','9'],
+
+  // GK, RCB, CB, LCB, RWB, LWB, DM, RCM, LCM, RS, LS
+  "3-5-2": ['1','3R','4','3L','2R','2L','6','8R','8L','9R','9L'],
+
+  // GK, RB, RCB, LCB, LB, RM, DM, LM, RS, LS, (no AM)
+  "4-4-2": ['1','2R','3R','3L','2L','11R','6','11L','9R','9L','8R'] // last slot = extra CM (8R)
 };
 
 export const getRoleFromSlot = (slot: string): string => {
-  const slotNum = String(slot).match(/\d+/)?.[0];
-  switch (slotNum) {
-    case '1': return 'goalkeeper';
-    case '2': case '5': return 'defender'; // Full-backs
-    case '3': case '4': return 'defender'; // Centre-backs
-    case '6': return 'midfielder'; // CDM
-    case '7': case '8': return 'midfielder'; // CM
-    case '10': return 'midfielder'; // CAM
-    case '11': return 'attacker'; // Wings
-    case '9': return 'attacker'; // Striker
-    default: return 'midfielder';
+  const s = String(slot || "").toUpperCase();
+  const num = s.match(/\d+/)?.[0];
+  if (num) {
+    if (num === "1") return "gk";
+    if (["2","3","4","5"].includes(num)) return "defender";
+    if (["6","8","10"].includes(num)) return "midfielder";
+    if (["9","11"].includes(num)) return "attacker";
   }
+  if (/GK/.test(s)) return "gk";
+  if (/CB|RB|LB|RWB|LWB|DF/.test(s)) return "defender";
+  if (/DM|CM|AM|MF/.test(s)) return "midfielder";
+  if (/ST|CF|SS|RW|LW|FW|ATT/.test(s)) return "attacker";
+  return "midfielder";
 };
+
+export const getSide = (slot: string): string | null =>
+  /L$/.test(String(slot)) ? 'L' : (/R$/.test(String(slot)) ? 'R' : null);
 
 // Position coordinates for pitch visualization (4-3-3 formation)
 export const positionMap: Record<string, { x: number; y: number }> = {

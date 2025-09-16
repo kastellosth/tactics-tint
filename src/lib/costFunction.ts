@@ -1,5 +1,4 @@
-// Lower is better. Negative means favorable for us.
-
+// costFunction.ts - Advanced cost calculation with opponent insights
 import { getRoleFromSlot } from "./formationPositions";
 
 // ---------- helpers ----------
@@ -28,11 +27,10 @@ const getQ = (p: any): number => asNumber(p?.quality ?? p?.Overall ?? p?.overall
 // Map slot → coarse role family used by penalties and weights
 const roleSubfamilyFromSlot = (slot: string): string => {
   const s = String(slot || "").toUpperCase().trim();
-  // exact-ish buckets (order matters; test most-specific first)
   if (s === "1" || s === "GK") return "GK";
   if (/^(CB|RCB|LCB|3|3L|3R|4|4L|4R)$/.test(s)) return "CB";
-  if (/^(RB|RWB|2)$/.test(s)) return "RB";
-  if (/^(LB|LWB|5)$/.test(s)) return "LB";
+  if (/^(RB|RWB|2R?)$/.test(s)) return "RB";
+  if (/^(LB|LWB|2L?)$/.test(s)) return "LB";
   if (/^(DM|CDM|6|6L|6R)$/.test(s)) return "DM";
   if (/^(CM|RCM|LCM|8|8L|8R)$/.test(s)) return "CM";
   if (/^(AM|CAM|10)$/.test(s)) return "AM";
@@ -41,29 +39,6 @@ const roleSubfamilyFromSlot = (slot: string): string => {
   if (/^(ST|CF|9)$/.test(s)) return "ST";
   return "CM";
 };
-
-const footFit = (slot: string, playerFoot: any): number => {
-  const sf = String(slot || "").toUpperCase();
-  const pf = normFoot(playerFoot);
-  if (!pf) return 1;
-  if (pf === "B") return 1;
-
-  const isLeftSide = /(L|LB|LWB|11L|3L|4L|6L|8L|LM|LCB|LCM|LDM|LAM)/.test(sf);
-  const isRightSide = /(R|RB|RWB|11R|3R|4R|6R|8R|RM|RCB|RCM|RDM|RAM)/.test(sf);
-
-  // Fullbacks: same-foot preferred; Wingers: slight preference for inverted
-  if (/RB|RWB|LB|LWB/.test(sf)) {
-    if ((isLeftSide && pf === "L") || (isRightSide && pf === "R")) return 1;
-    return 0.9;
-  }
-  if (/11L|11R|7|RW|LW|RM|LM/.test(sf)) {
-    if ((isLeftSide && pf === "R") || (isRightSide && pf === "L")) return 1;
-    return 0.95;
-  }
-  return 1;
-};
-
-// ---------- core pieces ----------
 
 // Legacy matchup signal, centered at 0 (negative = advantage for us)
 const coreMatchupCost = (me: any, opp: any): number => {
@@ -88,62 +63,6 @@ const coreMatchupCost = (me: any, opp: any): number => {
   c -= 0.10 * (staMe - staOp);
 
   return c;
-};
-
-// Penalty (>=0) for playing away from natural family
-const rolePenalty = (nativeRole: string, targetRole: string, nativeSlot: string, targetSlot: string): number => {
-  if (nativeRole === targetRole) return 0;
-
-  const famN = roleSubfamilyFromSlot(nativeSlot);
-  const famT = roleSubfamilyFromSlot(targetSlot);
-
-  const friendly = new Set([
-    "LB->CB", "RB->CB", "CB->LB", "CB->RB",
-    "CM->DM", "AM->CM", "CM->AM",
-    "LW->ST", "RW->ST", "ST->LW", "ST->RW",
-  ]);
-
-  const key = `${famN}->${famT}`;
-  if (friendly.has(key)) return 0.15;
-
-  const hostile = new Set([
-    "CB->AM", "CB->ST", "ST->CB", "LW->CB", "RW->CB",
-    "DM->ST", "ST->DM", "LB->ST", "RB->ST",
-  ]);
-  if (hostile.has(key)) return 0.45;
-
-  return 0.3;
-};
-
-// Small multiplicative nudge by role (kept tight)
-const formationMult = (myForm: string, oppForm: string, myRole: string): number => {
-  const base: Record<string, number> = {
-    GK: 1.0, CB: 1.0, LB: 1.0, RB: 1.0, DM: 1.0, CM: 1.0, AM: 1.0, LW: 1.0, RW: 1.0, ST: 1.0,
-  };
-  const r = base[myRole] ?? 1.0;
-  return Math.max(0.9, Math.min(1.1, r));
-};
-
-// Opponent insights to bias advanced fit cost
-// Returns { mul, shift } so that weakness ALWAYS helps us (more negative).
-const oppBias = (targetSlot: string, insights: any = {}): { mul: number; shift: number } => {
-  const fam = roleSubfamilyFromSlot(targetSlot);
-  const mid = 50;
-  const delta = (v: any) => (asNumber(v, mid) - mid) / 50; // -1..+1, positive => weaker
-
-  let mul = 1.0;
-  let shift = 0.0;
-
-  if (fam === "ST" || fam === "LW" || fam === "RW") {
-    // Weak backline => reduce cost via negative shift
-    shift += -0.05 * delta(insights.backlinePace);
-    shift += -0.03 * delta(insights.backlineAerial);
-  } else if (fam === "CM" || fam === "DM" || fam === "AM") {
-    // Weak midfield => reduce cost via negative shift
-    shift += -0.04 * delta(insights.midfieldStamina);
-    shift += -0.03 * delta(insights.midfieldPressRes);
-  }
-  return { mul, shift };
 };
 
 // Role-specific fit score 0..1 (higher = better fit)
@@ -191,26 +110,20 @@ const advancedFit = (player: any, targetSlot: string): number => {
   }
   if (!w) return 0;
 
-  // Foot fit multiplier
-  s *= footFit(targetSlot, player.preferredFoot);
-
   return clamp01(s / w);
 };
 
 // ---------- PUBLIC API ----------
 export const calculatePlayerPositionCost = (
   player: any,
-  targetPosCode: string,        // e.g., "11L", "RB", "ST"
-  oppAtSlot: any,            // opponent player object or null
+  targetPosCode: string,
+  oppAtSlot: any,
   myFormation = "4-3-3",
   oppFormation = "4-3-3",
-  oppInsights: any = {},     // insights on 0..100 scale
+  oppInsights: any = {},
   options: any = {}
 ): number => {
-  const { debug = false, overrideWeights, disableOppBias = false } = options || {};
-  const ADV_W = (overrideWeights && typeof overrideWeights.ADV_W === "number")
-    ? overrideWeights.ADV_W
-    : 0.7;
+  const ADV_W = 0.7;
 
   const nativeRole = getRoleFromSlot(player.position);
   const myTargetRole = getRoleFromSlot(targetPosCode);
@@ -222,25 +135,14 @@ export const calculatePlayerPositionCost = (
   const fit = advancedFit(player, targetPosCode);
   const advPre = (0.5 - fit);
 
-  // Opponent bias: multiplicative + additive (weakness should make cost more negative)
-  const { mul: bMul, shift: bShift } = disableOppBias
-    ? { mul: 1.0, shift: 0.0 }
-    : oppBias(targetPosCode, oppInsights);
+  // Simple role mismatch penalty
+  const pen = nativeRole === myTargetRole ? 0 : 0.3;
 
-  let advCost = advPre * bMul + bShift;
-
-  // Role mismatch penalty (>= 0)
-  const pen = rolePenalty(nativeRole, myTargetRole, player.position, targetPosCode);
-
-  // Formation multiplier (≈1.0)
-  const mult = formationMult(myFormation, oppFormation, myTargetRole);
-
-  // Blend and apply multiplier
-  const blended = ((1 - ADV_W) * old + ADV_W * advCost + pen);
-  const cost = blended * mult;
+  // Blend 
+  const blended = ((1 - ADV_W) * old + ADV_W * advPre + pen);
 
   // Only cap the upper extreme; keep negatives as-is
-  const clamped = Math.min(2.5, cost);
+  const clamped = Math.min(2.5, blended);
 
   return clamped;
 };

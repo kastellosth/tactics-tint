@@ -1,95 +1,41 @@
-// Enhanced CSV parser for my team with robust field mapping
-interface Player {
-  id: string;
-  firstName: string;
-  lastName: string;
-  name?: string;
-  preferredFoot?: string;
-  height: number;
-  position: string;
-  number?: number;
-  quality: number;
-  speed: number;
-  stamina: number;
-  strength: number;
-  balance: number;
-  agility: number;
-  jumping: number;
-  heading?: number;
-  aerial?: number;
-  passing?: number;
-  vision?: number;
-  firstTouch?: number;
-  finishing?: number;
-  tackling?: number;
-  positioning?: number;
-  pressResistance?: number;
-  offBall?: number;
-}
+// parseMyTeam.ts - Robust CSV parser for team data
+export function parseMyTeamCSV(text: string) {
+  const lines = text.replace(/\r/g, '').trim().split('\n');
+  if (!lines.length) return [];
+  const rawHeaders = lines[0].split(',').map(h => h.trim());
+  const headers = rawHeaders.map(h => h.toLowerCase());
+  const idx = (name: string) => headers.indexOf(name.toLowerCase());
+  const get = (values: string[], name: string) => { const i = idx(name); return i >= 0 ? values[i] : ''; };
+  const n = (values: string[], name: string, alts: string[] = []) => {
+    const v = get(values, name); if (v !== '') return parseFloat(v) || 0;
+    for (const a of alts) { const z = get(values, a); if (z !== '') return parseFloat(z) || 0; }
+    return 0;
+  };
 
-// Safe numeric conversion with clamping
-const safeNum = (val: any, defaultVal = 0): number => {
-  const num = Number(val);
-  return isNaN(num) ? defaultVal : Math.max(0, Math.min(100, num));
-};
-
-// Name helpers for robust name coalescing
-const coalesceNameParts = (vals: any[]): string[] =>
-  vals.filter(Boolean).map(String).map(s => s.trim()).filter(Boolean);
-
-const coalesceName = (record: Record<string, string>): string => {
-  const parts = coalesceNameParts([
-    record?.name,
-    record?.player,
-    record?.displayName,
-    [record?.firstName, record?.lastName].filter(Boolean).join(" "),
-    [record?.first_name, record?.last_name].filter(Boolean).join(" ")
-  ]);
-  return parts[0] || "";
-};
-
-export const parseMyTeamCSV = (text: string): Player[] => {
-  const lines = text.trim().split('\n');
-  if (lines.length < 2) return [];
-  
-  const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-  
-  return lines.slice(1).map((line, index) => {
+  return lines.slice(1).map(line => {
     const values = line.split(',').map(v => v.trim());
-    const obj: Record<string, string> = {};
-    headers.forEach((k, i) => obj[k] = values[i] || '');
-    
-    // Robust field mapping with multiple header variations
-    const firstName = obj.firstname || obj.first_name || obj['first name'] || '';
-    const lastName = obj.lastname || obj.last_name || obj['last name'] || '';
-    const displayName = coalesceName(obj) || `${firstName} ${lastName}`.trim();
-    
+    const firstName = get(values, 'firstname') || get(values, 'first_name') || '';
+    const lastName  = get(values, 'lastname')  || get(values, 'last_name')  || '';
+    const name = (get(values, 'name') || get(values, 'player') || get(values, 'displayname') || `${firstName} ${lastName}`).trim();
+    const rawNum = get(values, 'number') || get(values, 'jersey') || get(values, 'shirt') || get(values, 'kit') || get(values, 'id') || '';
+    const number = rawNum === '' ? 0 : (parseInt(rawNum, 10) || 0);
+    const pfRaw = get(values, 'preferredfoot') || get(values, 'foot') || '';
+    const pf = (() => {
+      const s = String(pfRaw).trim().toLowerCase();
+      if (!s) return ''; if (s.startsWith('r')) return 'R'; if (s.startsWith('l')) return 'L'; if (s.startsWith('b')) return 'B'; return '';
+    })();
+    const pos = (get(values, 'position') || get(values, 'slot') || '').toUpperCase();
+
     return {
-      id: obj.id || obj.number || `player_${index + 1}`,
-      firstName,
-      lastName,
-      name: displayName,
-      preferredFoot: obj.preferredfoot || obj.preferred_foot || obj.foot || obj.pref_foot,
-      height: safeNum(obj.height, 180),
-      position: (obj.position || '').toUpperCase(),
-      number: safeNum(obj.number || obj.jersey || obj['jersey number']),
-      quality: safeNum(obj.quality || obj.qualityscore || obj.rating),
-      speed: safeNum(obj.speed),
-      stamina: safeNum(obj.stamina),
-      strength: safeNum(obj.strength),
-      balance: safeNum(obj.balance),
-      agility: safeNum(obj.agility),
-      jumping: safeNum(obj.jumping),
-      heading: safeNum(obj.heading),
-      aerial: safeNum(obj.aerial),
-      passing: safeNum(obj.passing),
-      vision: safeNum(obj.vision),
-      firstTouch: safeNum(obj.firsttouch || obj.first_touch || obj['first touch']),
-      finishing: safeNum(obj.finishing),
-      tackling: safeNum(obj.tackling),
-      positioning: safeNum(obj.positioning),
-      pressResistance: safeNum(obj.pressresistance || obj.press_resistance || obj['press resistance']),
-      offBall: safeNum(obj.offball || obj.off_ball || obj['off ball'])
+      id: get(values, 'id') || '',
+      firstName, lastName, name, number, preferredFoot: pf, height: n(values, 'height'), position: pos,
+      quality: n(values, 'quality', ['qualityscore','overall']),
+      speed: n(values, 'speed'), stamina: n(values, 'stamina'), strength: n(values, 'strength'),
+      balance: n(values, 'balance'), agility: n(values, 'agility'), jumping: n(values, 'jumping'),
+      heading: n(values, 'heading'), aerial: n(values, 'aerial'), passing: n(values, 'passing'),
+      vision: n(values, 'vision'), firstTouch: n(values, 'firsttouch'), finishing: n(values, 'finishing'),
+      tackling: n(values, 'tackling'), positioning: n(values, 'positioning'),
+      pressResistance: n(values, 'pressresistance'), offBall: n(values, 'offball'),
     };
   });
-};
+}
