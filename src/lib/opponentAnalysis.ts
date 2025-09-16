@@ -1,10 +1,6 @@
-// Parsing + opponent team analysis + per-assignment matchup insights.
-// All thresholds/weights pulled from tacticalConfig.ts.
-
+// OpponentAnalysis.ts - Complete opponent analysis with matchup insights
 import { TACTICAL_CONFIG } from "./tacticalConfig";
 import { getRoleFromSlot } from "./formationPositions";
-
-/* ----------------------------- Parsing helpers ---------------------------- */
 
 const normalizePreferredFoot = (v: any): string => {
   const s = String(v || "").trim().toLowerCase();
@@ -31,14 +27,13 @@ const pickN = (headers: string[], values: string[], candidates: string[], fallba
 };
 
 export function inferOpponentFormation(opponent: any[]): string {
-  const roles = (opponent || []).map(p => getRoleFromSlot(p.slot || p.position));
+  const roles = (opponent || []).map(p => getRoleFromSlot(p.slot || p.position || ''));
   const d = roles.filter(r => r === "defender").length;
   const m = roles.filter(r => r === "midfielder").length;
   const a = roles.filter(r => r === "attacker").length;
-  return `${d}-${m}-${a}`; // e.g., "4-3-3"
+  return `${d}-${m}-${a}`;
 }
 
-// Public: robust CSV parser for opponent squads (keeps existing behavior)
 export function parseOpponentCSV(text: string): any[] {
   const lines = String(text || "").replace(/\r/g, "").trim().split("\n");
   if (!lines.length) return [];
@@ -51,19 +46,13 @@ export function parseOpponentCSV(text: string): any[] {
 
     const firstName = pick(headers, values, "firstname", "first_name");
     const lastName  = pick(headers, values, "lastname", "last_name");
-    const name =
-      (pick(headers, values, "name", "player", "displayname") ||
-        `${firstName} ${lastName}`).trim();
+    const name = (pick(headers, values, "name", "player", "displayname") || `${firstName} ${lastName}`).trim();
 
     const numberRaw = pick(headers, values, "number", "jersey", "kit", "shirt", "id");
     const number = numberRaw ? parseInt(numberRaw, 10) || 0 : 0;
 
-    const preferredFoot = normalizePreferredFoot(
-      pick(headers, values, "preferredfoot", "foot")
-    );
-
+    const preferredFoot = normalizePreferredFoot(pick(headers, values, "preferredfoot", "foot"));
     const slotOrPos = (pick(headers, values, "slot", "position") || "").toUpperCase();
-
     const num = (keys: string[], fb = 0) => pickN(headers, values, keys, fb);
 
     return {
@@ -73,40 +62,35 @@ export function parseOpponentCSV(text: string): any[] {
       name,
       number,
       preferredFoot,
-      position: slotOrPos,        // keep as "position" for downstream compatibility
-      slot: slotOrPos,            // also expose "slot" to ease lookups
-      height:      num(["height"]),
-      quality:     num(["quality", "qualityscore", "overall"]),
-      speed:       num(["speed"]),
-      stamina:     num(["stamina"]),
-      strength:    num(["strength"]),
-      balance:     num(["balance"]),
-      agility:     num(["agility"]),
-      jumping:     num(["jumping"]),
-      heading:     num(["heading"]),
-      aerial:      num(["aerial"]),
-      passing:     num(["passing"]),
-      vision:      num(["vision"]),
-      firstTouch:  num(["firsttouch", "first_touch"]),
-      finishing:   num(["finishing"]),
-      tackling:    num(["tackling"]),
+      position: slotOrPos,
+      slot: slotOrPos,
+      height: num(["height"]),
+      quality: num(["quality", "qualityscore", "overall"]),
+      speed: num(["speed"]),
+      stamina: num(["stamina"]),
+      strength: num(["strength"]),
+      balance: num(["balance"]),
+      agility: num(["agility"]),
+      jumping: num(["jumping"]),
+      heading: num(["heading"]),
+      aerial: num(["aerial"]),
+      passing: num(["passing"]),
+      vision: num(["vision"]),
+      firstTouch: num(["firsttouch", "first_touch"]),
+      finishing: num(["finishing"]),
+      tackling: num(["tackling"]),
       positioning: num(["positioning"]),
       pressResistance: num(["pressresistance", "press_resistance"]),
-      offBall:     num(["offball", "off_ball"])
+      offBall: num(["offball", "off_ball"])
     };
   });
 }
 
-/* --------------------------- Team-level aggregates ------------------------ */
-
 const avg = (arr: number[]): number => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
-const mean = avg;
-
 const compositeAerial = (p: any): number => avg([p.jumping || 0, p.heading || 0, p.aerial || 0]);
-const compositePace   = (p: any): number => avg([p.speed || 0, p.agility || 0]); // quickness + top speed
-const compositePress  = (p: any): number => avg([p.tackling || 0, p.positioning || 0]);
+const compositePace = (p: any): number => avg([p.speed || 0, p.agility || 0]);
+const compositePress = (p: any): number => avg([p.tackling || 0, p.positioning || 0]);
 
-// Public: analyze opponent squad globally and suggest broad tactical ideas.
 export function analyzeOpponentTeam(opponentArray: any[]): any {
   const opp = Array.isArray(opponentArray) ? opponentArray : [];
   if (!opp.length) {
@@ -123,17 +107,17 @@ export function analyzeOpponentTeam(opponentArray: any[]): any {
     };
   }
 
-  const roles = opp.map((p) => getRoleFromSlot(p.slot || p.position));
-  const defenders  = opp.filter((_, i) => roles[i] === "defender");
-  const mids       = opp.filter((_, i) => roles[i] === "midfielder");
-  const attackers  = opp.filter((_, i) => roles[i] === "attacker");
+  const roles = opp.map((p) => getRoleFromSlot(p.slot || p.position || ''));
+  const defenders = opp.filter((_, i) => roles[i] === "defender");
+  const mids = opp.filter((_, i) => roles[i] === "midfielder");
+  const attackers = opp.filter((_, i) => roles[i] === "attacker");
 
-  const backlinePace      = mean(defenders.map(compositePace));
-  const backlineAerial    = mean(defenders.map(compositeAerial));
-  const midfieldStamina   = mean(mids.map((p) => p.stamina || 0));
-  const midfieldPress     = mean(mids.map(compositePress));
-  const attackSpeed       = mean(attackers.map((p) => p.speed || 0));
-  const attackFinishing   = mean(attackers.map((p) => p.finishing || 0));
+  const backlinePace = avg(defenders.map(compositePace));
+  const backlineAerial = avg(defenders.map(compositeAerial));
+  const midfieldStamina = avg(mids.map((p) => p.stamina || 0));
+  const midfieldPress = avg(mids.map(compositePress));
+  const attackSpeed = avg(attackers.map((p) => p.speed || 0));
+  const attackFinishing = avg(attackers.map((p) => p.finishing || 0));
 
   const insights = {
     backlinePace,
@@ -144,67 +128,51 @@ export function analyzeOpponentTeam(opponentArray: any[]): any {
     attackFinishing
   };
 
-  // Team-level suggestions using centralized thresholds
   const TT = TACTICAL_CONFIG.teamThresholds;
   const suggestions: string[] = [];
-  if (backlinePace     <= (TT.backlinePaceMax      ?? 70))
+  if (backlinePace <= (TT.backlinePaceMax ?? 70))
     suggestions.push("Exploit wings and direct runs (their backline pace is beatable).");
-  if (backlineAerial   <= (TT.backlineAerialMax    ?? 65))
+  if (backlineAerial <= (TT.backlineAerialMax ?? 65))
     suggestions.push("Cross more and attack aerially (their aerial strength is limited).");
-  if (midfieldStamina  <= (TT.midfieldStaminaMax   ?? 70))
+  if (midfieldStamina <= (TT.midfieldStaminaMax ?? 70))
     suggestions.push("Increase tempo and press in midfield (stamina edge).");
-  if (midfieldPress    <= (TT.midfieldPressMax     ?? 65))
+  if (midfieldPress <= (TT.midfieldPressMax ?? 65))
     suggestions.push("Play through the thirds; focus on short combinations (low pressing threat).");
-  if (attackSpeed      >= (TT.attackSpeedMin       ?? 85))
+  if (attackSpeed >= (TT.attackSpeedMin ?? 85))
     suggestions.push("Protect depth; keep a compact line vs pacey forwards.");
-  if (attackFinishing  >= (TT.attackFinishingMin   ?? 85))
+  if (attackFinishing >= (TT.attackFinishingMin ?? 85))
     suggestions.push("Limit shooting lanes; deny entries to zone 14.");
 
   return { insights, suggestions };
 }
 
-/* ------------------------- Per-assignment matchups ------------------------ */
-
-const isWingSlot = (slot: string): boolean => {
-  const s = String(slot || "").toUpperCase();
-  return /(RW|LW|7|11|RWB|LWB)/.test(s);
-};
+const isWingSlot = (slot: string): boolean => /(RW|LW|7|11|RWB|LWB)/.test(String(slot || "").toUpperCase());
 const isMidCM = (slot: string): boolean => /CM|^8(L|R)?$/.test(String(slot || "").toUpperCase());
 const isMidDM = (slot: string): boolean => /CDM|DM|^6(L|R)?$/.test(String(slot || "").toUpperCase());
 const isMidAM = (slot: string): boolean => /CAM|AM|^10(L|R)?$/.test(String(slot || "").toUpperCase());
 const isStriker = (slot: string): boolean => /ST|CF|^9(L|R)?$/.test(String(slot || "").toUpperCase());
-
 const nz = (v: any, d = 0): number => (Number.isFinite(v) ? v : d);
 
-// Public: analyze individual matchups from your assignments against the opponent
-// myAssignments: [{ my: <player>, position: <slot> }, ...]
-// opponent: raw opponent array (with slot/position)
 export function analyzeMatchups(myAssignments: any[], opponent: any[]): any {
-  const oppBySlot = new Map(
-    (opponent || []).map((p) => [String(p.slot || p.position), p])
-  );
-
+  const oppBySlot = new Map((opponent || []).map((p) => [String(p.slot || p.position), p]));
   const scores = { wings: 0, midfield: 0, aerial: 0, defense: 0, creation: 0 };
   const insights: string[] = [];
 
   const { thresholds: T, deltaImpact, suggestionWeights } = TACTICAL_CONFIG;
   const FAST = T?.fast ?? 0.12;
-  const AIR  = T?.air  ?? 0.10;
+  const AIR = T?.air ?? 0.10;
   const TECH = T?.qual ?? 0.10;
-  const STR  = T?.str  ?? 0.10;
+  const STR = T?.str ?? 0.10;
   const STAM = T?.stam ?? 0.12;
 
-  // Add score to a category with config-driven weights
   const add = (k: string, v: number) => {
-    const catW =
-      k in (suggestionWeights || {}) ? (suggestionWeights as any)[k] : 1.0;
+    const catW = k in (suggestionWeights || {}) ? (suggestionWeights as any)[k] : 1.0;
     const deltaW =
-      k === "wings"    ? (deltaImpact?.speed    ?? 1.0) :
-      k === "midfield" ? (deltaImpact?.stamina  ?? 1.0) :
-      k === "aerial"   ? (deltaImpact?.jumping  ?? 1.0) :
-      k === "defense"  ? (deltaImpact?.speed    ?? 1.0) :
-      k === "creation" ? (deltaImpact?.quality  ?? 1.0) :
-      1.0;
+      k === "wings" ? (deltaImpact?.speed ?? 1.0) :
+      k === "midfield" ? (deltaImpact?.stamina ?? 1.0) :
+      k === "aerial" ? (deltaImpact?.jumping ?? 1.0) :
+      k === "defense" ? (deltaImpact?.speed ?? 1.0) :
+      k === "creation" ? (deltaImpact?.quality ?? 1.0) : 1.0;
     scores[k] = (scores[k] || 0) + Math.max(0, v) * catW * deltaW;
   };
 
@@ -213,24 +181,22 @@ export function analyzeMatchups(myAssignments: any[], opponent: any[]): any {
     const me = asg.my || {};
     const opp = oppBySlot.get(slot) || null;
 
-    // Normalize gaps to 0–1 for threshold comparisons
-    const dSpeed   = (nz(me.speed)    - nz(opp?.speed, 50))       / 100;
-    const dAgility = (nz(me.agility)  - nz(opp?.agility, 50))     / 100;
-    const dStam    = (nz(me.stamina)  - nz(opp?.stamina, 50))     / 100;
-    const dStrength= (nz(me.strength) - nz(opp?.strength, 50))    / 100;
-    const dAerial  = ((nz(me.jumping)+nz(me.heading)+nz(me.aerial)) -
-                      (nz(opp?.jumping,50)+nz(opp?.heading,50)+nz(opp?.aerial,50))) / 300;
-    const myTech   = (nz(me.passing)+nz(me.vision)+nz(me.firstTouch)) / 300;
-    const oppPress = (nz(opp?.tackling,50)+nz(opp?.positioning,50)) / 200;
-    const dTech    = myTech - oppPress; // creation vs pressure reading
+    const dSpeed = (nz(me.speed) - nz(opp?.speed, 50)) / 100;
+    const dAgility = (nz(me.agility) - nz(opp?.agility, 50)) / 100;
+    const dStam = (nz(me.stamina) - nz(opp?.stamina, 50)) / 100;
+    const dStrength = (nz(me.strength) - nz(opp?.strength, 50)) / 100;
+    const dAerial = ((nz(me.jumping) + nz(me.heading) + nz(me.aerial)) -
+      (nz(opp?.jumping, 50) + nz(opp?.heading, 50) + nz(opp?.aerial, 50))) / 300;
+    const myTech = (nz(me.passing) + nz(me.vision) + nz(me.firstTouch)) / 300;
+    const oppPress = (nz(opp?.tackling, 50) + nz(opp?.positioning, 50)) / 200;
+    const dTech = myTech - oppPress;
 
-    // Wings: speed/agility edges vs fullbacks/wingbacks
     if (isWingSlot(slot)) {
       const paceEdge = Math.max(dSpeed, dAgility);
       if (paceEdge >= FAST) {
         insights.push(`Wing advantage at ${slot}: pace/1v1 edge.`);
         add("wings", paceEdge);
-        add("creation", Math.max(0, dTech)); // good to note end-product potential
+        add("creation", Math.max(0, dTech));
       }
       if (dAerial >= AIR) {
         insights.push(`Aerial mismatch wide at ${slot}: target far-post crosses.`);
@@ -238,7 +204,6 @@ export function analyzeMatchups(myAssignments: any[], opponent: any[]): any {
       }
     }
 
-    // Midfield: stamina (tempo), technique vs press
     if (isMidCM(slot) || isMidDM(slot) || isMidAM(slot)) {
       if (dStam >= STAM) {
         insights.push(`Midfield engine at ${slot}: tempo/pressing edge (stamina).`);
@@ -254,7 +219,6 @@ export function analyzeMatchups(myAssignments: any[], opponent: any[]): any {
       }
     }
 
-    // Striker vs CBs: finishing lanes emerge from pace or aerial edges
     if (isStriker(slot)) {
       const finLane = Math.max(dSpeed, dAerial);
       if (finLane >= Math.min(FAST, AIR)) {
@@ -263,43 +227,28 @@ export function analyzeMatchups(myAssignments: any[], opponent: any[]): any {
       }
     }
 
-    // Defensive risk flag (don't count positively, just warn)
     if (!opp) continue;
     if (getRoleFromSlot(slot) === "defender") {
       const risk = (nz(opp.speed) - nz(me.speed)) / 100;
       if (risk > FAST) {
         insights.push(`Risk at ${slot}: their attacker is significantly faster — protect depth.`);
-        // no positive score; this is a cautionary note
       }
     }
   }
 
-  // Generate final suggestions based on accumulated scores
   const suggestions: string[] = [];
   const topCategories = Object.entries(scores)
-    .sort(([,a], [,b]) => b - a)
+    .sort(([, a], [, b]) => b - a)
     .slice(0, 2)
     .map(([cat]) => cat);
 
-  if (topCategories.includes('wings')) {
-    suggestions.push('Exploit wing advantages with direct runs and crosses');
-  }
-  if (topCategories.includes('midfield')) {
-    suggestions.push('Control tempo through midfield superiority');
-  }
-  if (topCategories.includes('creation')) {
-    suggestions.push('Focus on technical build-up and key passes');
-  }
-  if (topCategories.includes('aerial')) {
-    suggestions.push('Target aerial duels and set pieces');
-  }
-  if (topCategories.includes('defense')) {
-    suggestions.push('Maintain defensive structure and press intelligently');
-  }
+  if (topCategories.includes('wings')) suggestions.push('Exploit wing advantages with direct runs and crosses');
+  if (topCategories.includes('midfield')) suggestions.push('Control tempo through midfield superiority');
+  if (topCategories.includes('creation')) suggestions.push('Focus on technical build-up and key passes');
+  if (topCategories.includes('aerial')) suggestions.push('Target aerial duels and set pieces');
+  if (topCategories.includes('defense')) suggestions.push('Maintain defensive structure and press intelligently');
 
-  const finalSuggestion = suggestions.length > 0 
-    ? suggestions[0] 
-    : 'Balanced tactical approach';
+  const finalSuggestion = suggestions.length > 0 ? suggestions[0] : 'Balanced tactical approach';
 
   return { scores, insights, suggestions, finalSuggestion };
 }

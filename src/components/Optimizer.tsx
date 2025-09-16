@@ -7,10 +7,9 @@ import { Upload } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { hungarianAlgorithm } from '@/lib/hungarianAlgorithm';
 import { calculatePlayerPositionCost } from '@/lib/costFunction';
-import { formationPositions, getRoleFromSlot, positionMap } from '@/lib/formationPositions';
-import { parseOpponentCSV, analyzeOpponentTeam, analyzeMatchups } from '@/lib/opponentAnalysis';
+import { formationPositions } from '@/lib/formationPositions';
+import { parseOpponentCSV, analyzeOpponentTeam, analyzeMatchups, inferOpponentFormation } from '@/lib/opponentAnalysis';
 import { parseMyTeamCSV } from '@/lib/parseMyTeam';
-import { inferOpponentFormation } from '@/lib/inferOpponentFormation';
 
 // Types
 interface Player {
@@ -266,16 +265,17 @@ const Optimizer: React.FC<OptimizerProps> = ({ onOptimization }) => {
     }
 
     setTimeout(() => {
-      const oppFormation = inferOpponentFormation(opponentTeam);
-      const formations = Object.keys(formationPositions);
+      try {
+        const oppFormation = inferOpponentFormation(opponentTeam);
+        const formations = Object.keys(formationPositions);
 
-      // Opponent insights bias
-      const opp = analyzeOpponentTeam(opponentTeam);
-      const oppInsights = opp?.insights || {};
+        // Opponent insights bias
+        const opp = analyzeOpponentTeam(opponentTeam);
+        const oppInsights = opp?.insights || {};
 
-      let lowest = Infinity;
-      let best: LineupResult | null = null;
-      const topLineups: LineupResult[] = [];
+        let lowest = Infinity;
+        let best: LineupResult | null = null;
+        const topLineups: LineupResult[] = [];
 
       formations.forEach((formation) => {
         const required = formationPositions[formation];
@@ -395,8 +395,13 @@ const Optimizer: React.FC<OptimizerProps> = ({ onOptimization }) => {
       setResult(optimizationResult);
       setIsOptimizing(false);
 
-      if (onOptimization) {
-        onOptimization(homeTeam, awayTeam);
+        if (onOptimization) {
+          onOptimization(homeTeam, awayTeam);
+        }
+      } catch (error) {
+        console.error('Optimization error:', error);
+        alert('An error occurred during optimization. Please check your CSV files and try again.');
+        setIsOptimizing(false);
       }
     }, 1000);
   };
