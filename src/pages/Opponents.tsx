@@ -37,6 +37,73 @@ export default function Opponents() {
     }
   };
 
+  const exportOpponentsCSV = () => {
+    const headers = [
+      'firstName', 'lastName', 'position', 'slot', 'qualityScore'
+    ];
+    
+    const csvContent = [
+      headers.join(','),
+      ...opponents.map(opponent => [
+        opponent.firstName,
+        opponent.lastName,
+        opponent.position,
+        opponent.slot,
+        opponent.qualityScore
+      ].join(','))
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'opponent-team.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const text = reader.result as string;
+        const lines = text.split('\n').filter(line => line.trim());
+        if (lines.length < 2) return;
+        
+        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+        const newOpponents: OpponentPlayer[] = [];
+        
+        for (let i = 1; i < lines.length; i++) {
+          const values = lines[i].split(',').map(v => v.trim());
+          if (values.length < headers.length) continue;
+          
+          const opponent: OpponentPlayer = {
+            id: `imported-${Date.now()}-${i}`,
+            firstName: values[headers.indexOf('firstname')] || '',
+            lastName: values[headers.indexOf('lastname')] || '',
+            position: values[headers.indexOf('position')] || 'CM',
+            slot: values[headers.indexOf('slot')] || '8',
+            qualityScore: parseInt(values[headers.indexOf('qualityscore')]) || 70,
+          };
+          
+          newOpponents.push(opponent);
+        }
+        
+        setOpponents(newOpponents);
+      } catch (error) {
+        console.error('Error importing CSV:', error);
+        alert('Error importing CSV file. Please check the format.');
+      }
+    };
+    reader.readAsText(file);
+    
+    // Reset input
+    e.target.value = '';
+  };
+
   return (
     <div className="flex-1 space-y-6 p-6">
       {/* Header */}
@@ -48,14 +115,21 @@ export default function Opponents() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline">
+          <Button variant="outline" onClick={exportOpponentsCSV}>
             <Download className="mr-2 h-4 w-4" />
             Export CSV
           </Button>
-          <Button variant="outline">
+          <Button variant="outline" onClick={() => document.getElementById('import-opponents-csv')?.click()}>
             <Upload className="mr-2 h-4 w-4" />
             Import CSV
           </Button>
+          <input
+            id="import-opponents-csv"
+            type="file"
+            accept=".csv"
+            style={{ display: 'none' }}
+            onChange={handleImportCSV}
+          />
           <Button className="gradient-primary">
             <Plus className="mr-2 h-4 w-4" />
             Add Opponent
