@@ -1,0 +1,12 @@
+firstName,lastName,position,slot,quality,speed,stamina,strength,balance,agility,jumping
+Alisson,Becker,GK,1,89,60,78,85,90,87,84
+Trent,Alexander-Arnold,RB,2R,85,78,82,76,84,82,76
+Virgil,van Dijk,CB,4,90,68,85,92,85,72,95
+Raphael,Varane,CB,5,87,70,83,89,82,75,92
+Andrew,Robertson,LB,3L,84,82,86,78,86,85,78
+Casemiro,,CDM,6,86,65,88,87,83,74,86
+Jordan,Henderson,CM,8,82,75,90,80,88,78,82
+Kevin,De Bruyne,CAM,10,91,76,87,78,90,88,78
+Sadio,Mané,LW,11L,88,92,85,75,88,94,82
+Mohamed,Salah,RW,7R,89,89,84,78,86,92,80
+Cristiano,Ronaldo,ST,9,94,78,82,90,85,88,98
